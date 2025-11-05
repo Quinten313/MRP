@@ -1,0 +1,331 @@
+import swiftsimio as sw
+import numpy as np
+from scipy.stats import binned_statistic
+from scipy.optimize import curve_fit
+from matplotlib.axes import Axes
+
+class LoadSimulation:
+    """This class is used to load in a given simulation. The following methods can be called:
+    - select_galaxies_fixed_number OR selext_galaxies_mass_threshold: loads in a selection of galaxies.
+    - load_all calls:
+        - load_variables: loads in useful variables
+        - velocities: calculates central and satellite velocities
+        - bin_galaxies: calculates galaxy number density and overdensity
+    - add_mass_density: calculates mass density and matter overdensity
+
+    Args:
+        path (str): path to SOAP catalog
+    """
+    def __init__(self, path):
+        self.data = sw.load(path)
+    
+    def select_galaxies_fixed_number(self: object, N: int):
+        """Loads in the N galaxies with the largest subhalo mass
+
+        Args:
+            self (object): simulation object
+            N (int): number of galaxies to include
+        """
+        halo_mass_all = self.data.exclusive_sphere_50kpc.total_mass.to('Msun')
+        order = np.argsort(halo_mass_all)
+        self.mass_threshold = halo_mass_all[order][-int(N)]
+        indices = order[-int(N):]
+        self.mask = np.zeros(len(halo_mass_all), dtype=bool)
+        self.mask[indices] = True
+        self.hmass = halo_mass_all[self.mask]
+    
+    def selext_galaxies_mass_threshold(self: object, mass_threshold: float):
+        """Loads in all galaxies with subhalo mass larger than mass_threshold
+
+        Args:
+            self (object): simulation object
+            mass_threshold (float): subhalo mass threshold in Msun
+        """
+        halo_mass_all = self.data.exclusive_sphere_50kpc.total_mass.to('Msun')
+        self.mass_threshold = mass_threshold
+        self.mask = halo_mass_all.value >= self.mass_threshold
+        self.hmass = halo_mass_all[self.mask]
+
+    def load_all(self: object, bins: int):
+        """Calls load_variables, velocities and bin_galaxies
+
+        Args:
+            self (object): simulation object
+            bins (int): number of voxels along each axis
+        """
+        self.load_variables()
+        self.velocities()
+        self.bin_galaxies(bins)
+
+    def load_variables(self: object):
+        """Loads in some basic properties
+
+        Args:
+            self (object): simulation object
+        """
+        self.boxsize = self.data.metadata.boxsize[0].value
+        self.is_central = self.data.input_halos.is_central[self.mask] == 1
+        self.halo_centers = self.data.input_halos.halo_centre.to_physical()[self.mask]
+        vp = self.data.exclusive_sphere_50kpc.centre_of_mass_velocity.to('km/s').to_physical()[self.mask]
+        self.vpx, self.vpy, self.vpz = vp[:, 0], vp[:, 1], vp[:, 2]
+
+    def velocities(self: object):
+        """Calculates the peculiar velocity of each central and the relative velocity to its host halo for each satellite
+
+        Args:
+            self (object): simulation object
+        """
+        hostid = self.data.input_halos_hbtplus.host_fofid[self.mask]
+
+        hostid_central = hostid[self.is_central]
+        velocity_central = self.vpx[self.is_central]
+
+        velocity_adjusted_mapping = np.zeros(np.max(hostid_central)+1)
+        velocity_adjusted_mapping[hostid_central] = velocity_central
+
+        velocity_of_host = velocity_adjusted_mapping[hostid]
+        v_in_halo = self.vpx.value - velocity_of_host
+        
+        self.v_centrals = velocity_central
+        self.v_satellites = v_in_halo[~self.is_central]
+
+    def bin_galaxies(self: object, bins: int):
+        """Calculates the galaxy number density per voxel (H) for each voxel and 
+        adds the galaxy number density and galaxy overdensity per voxel for each galaxy to self
+
+        Args:
+            self (object): simulation object
+            bins (int): number of voxels along each axis
+        """
+        self.bins=bins
+        positions = np.linspace(0, self.boxsize, self.bins+1)
+        self.H, edges = np.histogramdd(self.halo_centers.value, bins=[positions, positions, positions])
+        voxel_per_galaxy = np.digitize(self.halo_centers, positions)-1    # Minus 1: np.digitize starts numbering bins at 1
+        self.galaxy_number_density = np.array([self.H[*voxel_per_galaxy[i]] for i in range(len(voxel_per_galaxy))])
+        self.galaxy_overdensity = (self.galaxy_number_density - np.mean(self.galaxy_number_density))/np.mean(self.galaxy_number_density)
+        self.mean_galaxy_number_density = np.mean(self.galaxy_number_density)
+
+    def add_mass_density(self: object, path: str):
+        """Adds mass density per voxel, mass density per galaxy in its corresponding voxel,
+        and mass overdensity per galaxy in its corresponding voxel to the simulation object.
+        These values are calculated by calc_mass_density based on the snapshot data.
+
+        Args:
+            self (object): simulation
+            path (str): path to mass density .npy file
+        """
+        self.mass_per_voxel = np.load(path)
+        positions = np.linspace(0, 1000, 101)
+        voxel_per_galaxy = np.digitize(self.halo_centers, positions)-1
+        self.mass_density = np.array([self.mass_per_voxel[*voxel_per_galaxy[i]] for i in range(len(voxel_per_galaxy))])
+        self.matter_overdensity = (self.mass_density - np.mean(self.mass_density))/np.mean(self.mass_density)
+
+def nonlinear_bins(galaxy_number_density):
+    """Returns an array of bin edges: integer bin edges for
+    number density <= 10, log bin edges for number density > 10
+    
+    Args:
+        galaxy_number_density (np.ndarray): galaxy number density in corresponding voxel
+
+    Returns:
+        bin_edges (np.ndarray): bin edges
+    """    
+    if np.max(galaxy_number_density) <= 10:
+        return np.arange(1, np.max(galaxy_number_density))
+    n_log_bins = int(20*np.log10(np.max(galaxy_number_density) / 10))+1
+    linear_bins = np.arange(1, 10)
+    log_bins = 10**(1+np.arange(n_log_bins+1)/20)
+    return np.concatenate([linear_bins, log_bins])
+
+def calc_bin_centers(bin_edges, values):
+    """Calculates the mean of a set of values within each bin
+
+    Args:
+        bin_edges (np.ndarray): array of bin edges
+        values (np.ndarray): values that are binned
+
+    Returns:
+        bin_centers (np.ndarray): mean number density within each bin
+    """
+    bin_numbers = np.digitize(values, bin_edges)-1
+    bin_centers = [np.nanmean(values[bin_number == bin_numbers]) for bin_number in range(len(bin_edges)-1)]
+    return np.array(bin_centers)
+
+def velocity_binned_galaxies(galaxy_number_density, v) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Calculates the mean absolute peculiar velocity, binned 
+    in galaxy number density, along with its errors
+
+    Args:
+        galaxy_number_density (np.ndarray): galaxy number density in corresponding voxel
+        v (np.ndarray): peculiar velocity of each galaxy in 1 dimension
+
+    Returns:
+        out (tuple[np.ndarray, np.ndarray, np.ndarray]):
+        - **bin_centers** (_np.ndarray_): Mean number density within each bin.
+        - **v_mean** (_np.ndarray_): Mean absolute peculiar velocity within each bin.
+        - **v_err** (_np.ndarray_): Error on mean absolute peculiar velocity within each bin.
+    """
+    bin_edges = nonlinear_bins(galaxy_number_density)
+    bin_centers = calc_bin_centers(bin_edges, galaxy_number_density)
+
+    v_mean = binned_statistic(galaxy_number_density, np.abs(v), statistic='mean', bins=bin_edges)[0]
+    v_std = binned_statistic(galaxy_number_density, v, statistic='std', bins=bin_edges)[0]
+    v_N = binned_statistic(galaxy_number_density, np.abs(v), statistic='count', bins=bin_edges)[0]
+    v_err = v_std / np.sqrt(v_N)
+    return bin_centers, v_mean, v_err
+
+def velocity_binned_matter(matter_overdensity: np.ndarray, v: np.ndarray, bins: int=30) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Calculates the mean absolute peculiar velocity, binned 
+    in (matter overdensity + 1), along with its errors
+
+    Args:
+        matter_overdensity (np.ndarray): matter overdensity in corresponding voxel
+        v (np.ndarray): peculiar velocity of each galaxy
+        bins (int, optional): number of matter overdensity bins, defaults to 30
+
+    Returns:
+        bin_centers (np.ndarray): mean (matter overdensity + 1) within each bin
+        v_mean (np.ndarray): mean absolute peculiar velocity within each bin
+        v_err (np.ndarray): error on mean absolute peculiar velocity within each bin
+    """
+    m = matter_overdensity + 1
+    bin_edges = np.logspace(np.log10(np.min(m)), np.log10(np.max(m)), bins)
+    bin_centers = calc_bin_centers(bin_edges, m)
+
+    v_mean = binned_statistic(m, np.abs(v), statistic='mean', bins=bin_edges)[0]
+    v_std = binned_statistic(m, v, statistic='std', bins=bin_edges)[0]
+    v_N = binned_statistic(m, np.abs(v), statistic='count', bins=bin_edges)[0]
+    v_err = v_std / np.sqrt(v_N)
+    return bin_centers, v_mean, v_err
+
+def plot_galaxy_overdensity(ax: Axes, galaxy_number_density: np.ndarray, mean_galaxy_number_density: int, v: np.ndarray, c: str='black', label: str=None):
+    """Plots the mean absolute peculiar velocity in galaxy overdensity bins.
+
+    Args:
+        ax (Axes): Axes object to plot on
+        galaxy_number_density (np.ndarray): galaxy number density in corresponding voxel
+        mean_galaxy_number_density (int): mean galaxy number density in the simulation
+        v (np.ndarray): peculiar velocities of the galaxies
+        c (str, optional): Color of datapoints. Defaults to black
+        label (str, optional): Label of datapoints. Defaults to None
+    """
+    bin_centers, v_mean, v_err = velocity_binned_galaxies(galaxy_number_density, v)
+    ax.errorbar(bin_centers/mean_galaxy_number_density, v_mean, v_err, linestyle='', c=c)
+
+def plot_matter_overdensity(ax: Axes, matter_overdensity: np.ndarray, v: np.ndarray, bins: int=30, c: str='black', label: str=None):
+    """Plots the mean absolute peculiar velocity in matter overdensity bins.
+
+    Args:
+        ax (Axes): Axes object to plot on
+        matter_overdensity (np.ndarray): matter overdensity in corresponding voxel
+        v (np.ndarray): peculiar velocities of the galaxies
+        bins (int, optional): Number of matter overdensity bins. Defaults to 30
+        c (str, optional): Color of datapoints. Defaults to black
+        label (str, optional): Label of datapoints. Defaults to None
+    """
+    bin_centers, v_mean, v_err = velocity_binned_matter(matter_overdensity, v, bins=30)
+    ax.errorbar(bin_centers, v_mean, v_err, linestyle='', c=c)
+
+def velocity_function(x: np.ndarray, x0: float, s: float, p: float, c: float) -> np.ndarray:
+    """Model of the galaxy velocities as a function of galaxy or matter (number/over)density
+
+    Args:
+        x (np.ndarray): galaxy or matter (number/over)density
+        x0 (float): fitting parameter related to the transition point between the powerlaws
+        s (float): fitting parameter related to the slope of the second powerlaw
+        p (float): fitting parameter related to the speed of the transition between the powerlaws
+        c (float): futting parameter related to the velocity plateau that is the first 'powerlaw'
+
+    Returns:
+        np.ndarray: velocities predicted by the function
+    """
+    return (c**p + (x/x0)**(s*p))**(1/p)
+
+def plot_fit_galaxies(ax: Axes, galaxy_number_density: np.ndarray, mean_galaxy_number_density: float, v: np.ndarray, c: str='r', label: str='fit'):
+    """Plots a line fitted to the velocities as a function of galaxy overdensity + 1
+
+    Args:
+        ax (Axes): Axes object to plot on
+        galaxy_number_density (np.ndarray): galaxy number density in corresponding voxel
+        mean_galaxy_number_density (int): mean galaxy number density in the simulation
+        v (np.ndarray): peculiar velocities of the galaxies
+        c (str, optional): Color of fitted line. Defaults to red
+        label (str, optional): Label of fitted line. Defaults to fit
+    """
+    bin_centers, v_mean, v_err = velocity_binned_galaxies(galaxy_number_density, v)
+    bin_centers = bin_centers / mean_galaxy_number_density                              # Change from number density to overdensity
+    mask_nans = ~np.isnan(v_mean)
+    fit = curve_fit(velocity_function, bin_centers[mask_nans], v_mean[mask_nans], sigma=v_err[mask_nans])[0]
+    xx = np.logspace(np.log10(np.nanmin(bin_centers)), np.log10(np.nanmax(bin_centers)), 100)
+    ax.errorbar(xx, velocity_function(xx, *fit), c=c, label=label, zorder=-10)
+
+def plot_fit_matter(ax: Axes, matter_overdensity: np.ndarray, v: np.ndarray, bins: int=30, c: str='r', label: str='fit'):
+    """Plots a line fitted to the velocities as a function of matter overdensity + 1
+
+    Args:
+        ax (Axes): Axes object to plot on
+        matter_overdensity (np.ndarray): matter overdensity in corresponding voxel
+        v (np.ndarray): peculiar velocities of the galaxies
+        bins (int, optional): Number of matter overdensity bins. Defaults to 30
+        c (str, optional): Color of fitted line. Defaults to red
+        label (str, optional): Label of fitted line. Defaults to fit
+    """
+    bin_centers, v_mean, v_err = velocity_binned_matter(matter_overdensity, v)
+    mask_nans = ~np.isnan(v_mean)
+    fit = curve_fit(velocity_function, bin_centers[mask_nans], v_mean[mask_nans], sigma=v_err[mask_nans])[0]
+
+    xx = np.logspace(np.log10(np.nanmin(bin_centers)), np.log10(np.nanmax(bin_centers)))
+    ax.plot(xx, velocity_function(xx, *fit), c=c, label=label, zorder=-10)
+
+
+def calc_mass_density(path_data: str, output_file: str, bins: int):
+    """Calculates the mass density divided in bins^3 cubical voxels using the snapshot data.
+    This mass density is written to a .npy file.
+
+    Args:
+        path_data (str): path to snapshot data
+        output_file (str): name and path of output file
+        bins (int): number of voxels along each axis
+    """
+    boxsize = sw.load(path_data).metadata.boxsize[0]
+    step = np.linspace(0, 1, bins+1)*boxsize
+    masses3D = []
+    
+    for i in range(bins):
+        region_slice = [
+            [step[i], step[i+1]],
+            [boxsize*0, boxsize],
+            [boxsize*0, boxsize],
+        ]
+        mask_region = sw.mask(path_data)
+        mask_region.constrain_spatial(region_slice)
+        snapshot_slice = sw.load(path_data, mask=mask_region)
+        
+        masses_particles = snapshot_slice.dark_matter.masses
+        coords_particles = snapshot_slice.dark_matter.coordinates
+        try:
+            masses_particles = np.concatenate(
+                masses_particles.to('Msun'),
+                snapshot_slice.gas.masses.to('Msun'),
+                snapshot_slice.stars.masses.to('Msun'), 
+                snapshot_slice.dark_matter.masses.to('Msun'),
+                )
+            coords_particles = np.concatenate(
+                coords_particles,
+                snapshot_slice.gas.coordinates,
+                snapshot_slice.stars.coordinates, 
+                snapshot_slice.dark_matter.coordinates,
+                )
+        except AttributeError:
+            pass
+        mask = (coords_particles[:, 0] >= step[i]) & (coords_particles[:, 0] < step[i+1])
+        masses_particles = masses_particles[mask]
+        coords_particles = coords_particles[mask]
+        
+        pixel_per_particle2D = np.digitize(coords_particles[:, [1,2]], bins=step)-1
+        pixel_per_particle = bins*pixel_per_particle2D[:, 0]+pixel_per_particle2D[:, 1]
+
+        mass_grid = np.bincount(pixel_per_particle, masses_particles)
+        masses3D.append(mass_grid.reshape([bins, bins]))
+        print(i)
+    np.save(output_file, np.array(masses3D))
