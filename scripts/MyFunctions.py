@@ -34,17 +34,19 @@ class LoadSimulation:
         self.mask[indices] = True
         self.hmass = halo_mass_all[self.mask]
     
-    def selext_galaxies_mass_threshold(self: object, mass_threshold: float):
-        """Loads in all galaxies with subhalo mass larger than mass_threshold
+    def selext_galaxies_mass_threshold(self: object, mass_range: list[float, float]):
+        """Loads in all galaxies with subhalo mass within the mass range
 
         Args:
             self (object): simulation object
-            mass_threshold (float): subhalo mass threshold in Msun
+            mass_range (list[float, float]): subhalo mass range in Msun
         """
         halo_mass_all = self.data.exclusive_sphere_50kpc.total_mass.to('Msun')
-        self.mass_threshold = mass_threshold
-        self.mask = halo_mass_all.value >= self.mass_threshold
+        self.mass_threshold = mass_range[0]
+        self.mass_limit = mass_range[1]
+        self.mask = (halo_mass_all.value >= self.mass_threshold) & (halo_mass_all.value < self.mass_limit)
         self.hmass = halo_mass_all[self.mask]
+        print(f'Mass range: {np.log10(mass_range[0])} - {np.log10(mass_range[1])}\nGalaxies: {np.sum(self.mask)}')
 
     def load_all(self: object, bins: int):
         """Calls load_variables, velocities and bin_galaxies
@@ -346,3 +348,30 @@ def calc_voxel_mass(path_data: str, output_file: str, bins: int):
         masses3D.append(mass_grid.reshape([bins, bins]))
         print(i)
     np.save(output_file, np.array(masses3D))
+
+def power_spectrum(simulation: object, overdensity_matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Calculates the power spectrum of any binned overdensity and removes shot noise.
+    This calculation assumes that all particles/galaxies have the same mass.
+
+    Args:
+        simulation (object): simulation object
+        overdensity_matrix (np.ndarray): three-dimensional matrix containing any overdenisty of a volume
+
+    Returns:
+        out (tuple[np.ndarray,np.ndarray]):
+        - **k** (np.ndarray): wavenumbers
+        - **P(k)** (np.ndarray): corresponding powerspectrum 
+    """
+    ft = np.fft.fftn(overdensity_matrix)
+    ft = np.abs(ft)**2
+    N = len(ft[0])
+    binsize = round(simulation.boxsize/simulation.bins)
+    frequencies = np.fft.fftfreq(N, 1/N)
+    k1 = frequencies**2
+    k2 = np.array([k1 + freq**2 for freq in frequencies])
+    k3 = np.array([k2 + freq**2 for freq in frequencies])
+    k = np.round(k3**.5).astype(np.int64)
+    P = np.bincount(k.flatten(), weights=ft.flatten())[:N//2] / np.bincount(k.flatten())[:N//2]
+    P *= simulation.boxsize**3/simulation.bins**6     # Normalization
+    P -= simulation.boxsize**3 / len(simulation.vpx)  # Removing shot noise (only works for unweighted particles)
+    return 2*np.pi*np.fft.fftfreq(N, binsize)[1:N//2], P[1:]
