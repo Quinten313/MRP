@@ -70,7 +70,6 @@ class LoadSimulation:
         self.halo_centers = self.data.input_halos.halo_centre.to_physical()[self.mask]
         self.vp = self.data.exclusive_sphere_50kpc.centre_of_mass_velocity.to('km/s').to_physical()[self.mask]
         self.vp_abs = np.sum(self.vp**2, axis=1)**.5
-        #self.vpx, self.vpy, self.vpz = vp[:, 0], vp[:, 1], vp[:, 2]
 
     def velocities(self: object):
         """Calculates the peculiar velocity of each central and the relative velocity to its host halo for each satellite.
@@ -185,9 +184,9 @@ def velocity_binned_galaxies(number_density_per_galaxy, v) -> tuple[np.ndarray, 
     """Calculates the mean absolute peculiar velocity, binned 
     in galaxy number density, along with its errors
 
-    Args:calc_
+    Args:
         number_density_per_galaxy (np.ndarray): galaxy number density in corresponding voxel for each galaxy
-        v (np.ndarray): peculiar velocity of each galaxy in 1 dimension
+        v (np.ndarray): peculiar velocity of each galaxy
 
     Returns:
         out (tuple[np.ndarray, np.ndarray, np.ndarray]):
@@ -340,6 +339,39 @@ def plot_fit_matter(ax: Axes, matter_overdensity_per_galaxy: np.ndarray, v: np.n
     ax.plot(xx, velocity_function(xx, *fit), c=c, label=label, zorder=-10)
     return fit
 
+def five_point_stencil(y: np.ndarray, boxsize: float, dimension: int):
+    """This function approximates the derivative of a property in one dimension using the five point stencil for data with shape (n_bins, n_bins, n_bins).
+    
+    Args:
+        y (np.ndarray): n_bins x n_bins x n_bins sized matrix, containing the values of the property of which the derivative is calculated
+        boxsize (float): box size in Mpc
+        dimension (int): dimension in which the five point stencil is calculated (e.g. 0 for x, etc.)
+    
+    Returns:
+        dfdx (np.ndarray): n_bins x n_bins x n_bins sized matrix containing the derivatives
+    """
+    # Five point stencil formula
+    def derivative(y1, y2, y4, y5):
+        return (-y5 + 8*y4 - 8*y2 + y1) / (12*voxel_size)
+    
+    # Select correct y_i's given the supplied dimension
+    def select_range(range, dimension):
+        range3D = [slice(None), slice(None), slice(None)]
+        range3D[dimension] = range
+        return tuple(range3D)
+    
+    n_bins = len(y)
+    voxel_size = boxsize / n_bins
+    indices = np.arange(n_bins)
+
+    range1, range2, range4, range5 = [np.roll(indices, shift) for shift in [2, 1, -1, -2]]
+    dfdx = derivative(
+        y[select_range(range1, dimension)], 
+        y[select_range(range2, dimension)], 
+        y[select_range(range4, dimension)], 
+        y[select_range(range5, dimension)]
+    )
+    return dfdx
 
 def calc_voxel_mass(path_data: str, output_file: str, bins: int):
     """Calculates the mass density divided in bins^3 cubical voxels using the snapshot data.
@@ -394,6 +426,7 @@ def calc_voxel_mass(path_data: str, output_file: str, bins: int):
         masses3D.append(mass_grid.reshape([bins, bins]))
         print(i)
     np.save(output_file, np.array(masses3D))
+
 
 def power_spectrum(simulation: object, overdensity_matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Calculates the power spectrum of any binned overdensity and removes shot noise.
