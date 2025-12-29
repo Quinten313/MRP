@@ -56,8 +56,8 @@ class LoadSimulation:
             bins (int): number of voxels along each axis
         """
         self.load_variables()
-        self.velocities()
         self.bin_galaxies(bins)
+        self.velocities()
 
     def load_variables(self: object):
         """Loads in some basic properties
@@ -68,11 +68,13 @@ class LoadSimulation:
         self.boxsize = self.data.metadata.boxsize[0].value
         self.is_central = self.data.input_halos.is_central[self.mask] == 1
         self.halo_centers = self.data.input_halos.halo_centre.to_physical()[self.mask]
-        vp = self.data.exclusive_sphere_50kpc.centre_of_mass_velocity.to('km/s').to_physical()[self.mask]
-        self.vpx, self.vpy, self.vpz = vp[:, 0], vp[:, 1], vp[:, 2]
+        self.vp = self.data.exclusive_sphere_50kpc.centre_of_mass_velocity.to('km/s').to_physical()[self.mask]
+        self.vp_abs = np.sum(self.vp**2, axis=1)**.5
+        #self.vpx, self.vpy, self.vpz = vp[:, 0], vp[:, 1], vp[:, 2]
 
     def velocities(self: object):
-        """Calculates the peculiar velocity of each central and the relative velocity to its host halo for each satellite
+        """Calculates the peculiar velocity of each central and the relative velocity to its host halo for each satellite.
+        Also calculates the average velocity of galaxies in each voxel.
 
         Args:
             self (object): simulation object
@@ -80,16 +82,27 @@ class LoadSimulation:
         hostid = self.data.input_halos_hbtplus.host_fofid[self.mask]
 
         hostid_central = hostid[self.is_central]
-        velocity_central = self.vpx[self.is_central]
+        velocity_central = self.vp_abs[self.is_central]
 
         velocity_adjusted_mapping = np.zeros(np.max(hostid_central)+1)
         velocity_adjusted_mapping[hostid_central] = velocity_central
 
         velocity_of_host = velocity_adjusted_mapping[hostid]
-        v_in_halo = self.vpx.value - velocity_of_host
+        v_in_halo = self.vp_abs.value - velocity_of_host
         
         self.v_centrals = velocity_central
         self.v_satellites = v_in_halo[~self.is_central]
+
+        positions = np.linspace(0, self.boxsize, self.bins+1)
+        self.voxel_velocity = []
+        for v in self.vp.T:
+            voxel_velocity_summation = np.histogramdd(np.array(self.halo_centers), bins = [positions, positions, positions], weights=np.array(v))[0]
+            voxel_count = np.histogramdd(np.array(self.halo_centers), bins = [positions, positions, positions])[0]
+
+            voxel_velocity = voxel_velocity_summation / voxel_count
+            voxel_velocity[np.isnan(voxel_velocity)] = 0
+            self.voxel_velocity.append(voxel_velocity)
+        self.voxel_velocity = np.array(self.voxel_velocity)
 
     def bin_galaxies(self: object, bins: int):
         """Calculates the galaxy number density per voxel and adds 
@@ -103,8 +116,8 @@ class LoadSimulation:
         positions = np.linspace(0, self.boxsize, self.bins+1)
         self.number_density, edges = np.histogramdd(self.halo_centers.value, bins=[positions, positions, positions])
         self.galaxy_overdensity = self.number_density / np.mean(self.number_density) - 1
-        voxel_per_galaxy = np.digitize(self.halo_centers, positions)-1    # Minus 1: np.digitize starts numbering bins at 1
-        self.number_density_per_galaxy = np.array([self.number_density[*voxel_per_galaxy[i]] for i in range(len(voxel_per_galaxy))])
+        self.voxel_per_galaxy = np.digitize(self.halo_centers, positions)-1    # Minus 1: np.digitize starts numbering bins at 1
+        self.number_density_per_galaxy = np.array([self.number_density[*self.voxel_per_galaxy[i]] for i in range(len(self.voxel_per_galaxy))])
         self.galaxy_overdensity_per_galaxy = (self.number_density_per_galaxy - np.mean(self.number_density)) - 1
         self.mean_galaxy_number_density = np.mean(self.number_density)
 
@@ -124,6 +137,18 @@ class LoadSimulation:
         voxel_per_galaxy = np.digitize(self.halo_centers, positions)-1
         self.voxel_mass_per_galaxy = np.array([self.voxel_mass[*voxel_per_galaxy[i]] for i in range(len(voxel_per_galaxy))])
         self.matter_overdensity_per_galaxy = (self.voxel_mass_per_galaxy)/np.mean(self.voxel_mass)-1
+
+def unbias(x: np.ndarray, bias: float):
+    """Corrects an overdensity for its bias
+
+    Args:
+        x (np.ndarray): array of overdensities + 1
+        bias (float): linear bias factor
+
+    Returns:
+        x_unbiased (np.ndarray): array of overdensities + 1, corrected for its bias
+    """
+    return (x-1)/bias+1
 
 def nonlinear_bins(number_density_per_galaxy):
     """Returns an array of bin edges: integer bin edges for
@@ -217,7 +242,7 @@ def plot_galaxy_overdensity(ax: Axes, number_density_per_galaxy: np.ndarray, mea
         label (str, optional): Label of datapoints. Defaults to None
     """
     bin_centers, v_mean, v_err = velocity_binned_galaxies(number_density_per_galaxy, v)
-    ax.errorbar(bin_centers/mean_galaxy_number_density, v_mean, v_err, linestyle='', c=c)
+    ax.errorbar(bin_centers/mean_galaxy_number_density, v_mean, v_err, linestyle='', c=c, label=label)
 
 def plot_matter_overdensity(ax: Axes, matter_overdensity_per_galaxy: np.ndarray, v: np.ndarray, bins: int=30, c: str='black', label: str=None):
     """Plots the mean absolute peculiar velocity in matter overdensity bins.
@@ -241,21 +266,45 @@ def velocity_function(x: np.ndarray, x0: float, s: float, p: float, c: float) ->
         x0 (float): fitting parameter related to the transition point between the powerlaws
         s (float): fitting parameter related to the slope of the second powerlaw
         p (float): fitting parameter related to the speed of the transition between the powerlaws
-        c (float): futting parameter related to the velocity plateau that is the first 'powerlaw'
+        c (float): fitting parameter related to the velocity plateau that is the first 'powerlaw'
 
     Returns:
         np.ndarray: velocities predicted by the function
     """
     return (c**p + (x/x0)**(s*p))**(1/p)
 
-def plot_fit_galaxies(ax: Axes, number_density_per_galaxy: np.ndarray, mean_galaxy_number_density: float, v: np.ndarray, p0: list=None, c: str='r', label: str='fit'):
-    """Plots a line fitted to the velocities as a function of galaxy overdensity + 1
+def fit_velocities_galaxies(number_density_per_galaxy: np.ndarray, mean_galaxy_number_density: float, v: np.ndarray, p0: list=None):
+    """Uses curve_fit to find the best fit through the velocities as a function of galaxy overdensity + 1
+
+    Args:
+        number_density_per_galaxy (np.ndarray): galaxy number density in corresponding voxel for each galaxy
+        mean_galaxy_number_density (int): mean galaxy number density in the simulation
+        v (np.ndarray): peculiar velocities of the galaxies
+        p0 (list, optional): Initial guess of fitting parameters. Defaults to None
+    
+    Returns:
+        out (tuple[np.ndarray,np.ndarray]):
+        - **popt** (np.ndarray): fitting parameters found by scipy.stats.curve_fit
+        - **x_min** (np.float64): smallest value of the galaxy overdensity + 1
+        - **x_max** (np.float64): largest value of the galaxy overdensity + 1
+
+    """
+    bin_centers, v_mean, v_err = velocity_binned_galaxies(number_density_per_galaxy, v)
+    bin_centers = bin_centers / mean_galaxy_number_density                              # Change from number density to density
+    mask_nans = ~np.isnan(v_mean)
+    fit = curve_fit(velocity_function, bin_centers[mask_nans], v_mean[mask_nans], sigma=v_err[mask_nans])[0]
+    return fit, np.nanmin(bin_centers), np.nanmax(bin_centers)
+
+def plot_fit_galaxies(ax: Axes, number_density_per_galaxy: np.ndarray, mean_galaxy_number_density: float, v: np.ndarray, bias: float=1., p0: list=None, c: str='r', label: str='fit'):
+    """Plots a line fitted to the velocities as a function of galaxy overdensity + 1.
+    If a bias is given, the galaxy overdensity is corrected for its bias.
 
     Args:
         ax (Axes): Axes object to plot on
         number_density_per_galaxy (np.ndarray): galaxy number density in corresponding voxel for each galaxy
         mean_galaxy_number_density (int): mean galaxy number density in the simulation
         v (np.ndarray): peculiar velocities of the galaxies
+        bias (float, optional): linear bias factor. Defaults to 1
         p0 (list, optional): Initial guess of fitting parameters. Defaults to None
         c (str, optional): Color of fitted line. Defaults to red
         label (str, optional): Label of fitted line. Defaults to fit
@@ -263,12 +312,9 @@ def plot_fit_galaxies(ax: Axes, number_density_per_galaxy: np.ndarray, mean_gala
     Returns:
         popt (np.ndarray): fitting parameters found by scipy.stats.curve_fit 
     """
-    bin_centers, v_mean, v_err = velocity_binned_galaxies(number_density_per_galaxy, v)
-    bin_centers = bin_centers / mean_galaxy_number_density                              # Change from number density to overdensity
-    mask_nans = ~np.isnan(v_mean)
-    fit = curve_fit(velocity_function, bin_centers[mask_nans], v_mean[mask_nans], sigma=v_err[mask_nans])[0]
-    xx = np.logspace(np.log10(np.nanmin(bin_centers)), np.log10(np.nanmax(bin_centers)), 100)
-    ax.errorbar(xx, velocity_function(xx, *fit), c=c, label=label, zorder=-10)
+    fit, x_min, x_max = fit_velocities_galaxies(number_density_per_galaxy, mean_galaxy_number_density, v, p0=None)
+    xx = np.logspace(np.log10(x_min), np.log10(x_max), 100)
+    ax.errorbar(unbias(xx, bias), velocity_function(xx, *fit), c=c, label=label, zorder=-10)
     return fit
 
 def plot_fit_matter(ax: Axes, matter_overdensity_per_galaxy: np.ndarray, v: np.ndarray, bins: int=30, p0: list=None, c: str='r', label: str='fit'):
@@ -373,5 +419,5 @@ def power_spectrum(simulation: object, overdensity_matrix: np.ndarray) -> tuple[
     k = np.round(k3**.5).astype(np.int64)
     P = np.bincount(k.flatten(), weights=ft.flatten())[:N//2] / np.bincount(k.flatten())[:N//2]
     P *= simulation.boxsize**3/simulation.bins**6     # Normalization
-    P -= simulation.boxsize**3 / len(simulation.vpx)  # Removing shot noise (only works for unweighted particles)
+    P -= simulation.boxsize**3 / len(simulation.vp_abs)  # Removing shot noise (only works for unweighted particles)
     return 2*np.pi*np.fft.fftfreq(N, binsize)[1:N//2], P[1:]
