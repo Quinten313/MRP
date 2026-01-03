@@ -116,7 +116,7 @@ class LoadSimulation:
         self.number_density, edges = np.histogramdd(self.halo_centers.value, bins=[positions, positions, positions])
         self.galaxy_overdensity = self.number_density / np.mean(self.number_density) - 1
         self.voxel_per_galaxy = np.digitize(self.halo_centers, positions)-1    # Minus 1: np.digitize starts numbering bins at 1
-        self.number_density_per_galaxy = np.array([self.number_density[*self.voxel_per_galaxy[i]] for i in range(len(self.voxel_per_galaxy))])
+        self.number_density_per_galaxy = self.number_density[*self.voxel_per_galaxy.T]
         self.galaxy_overdensity_per_galaxy = self.number_density_per_galaxy / np.mean(self.number_density) - 1
         self.mean_galaxy_number_density = np.mean(self.number_density)
 
@@ -134,7 +134,7 @@ class LoadSimulation:
         self.matter_overdensity_per_voxel = self.voxel_mass / np.mean(self.voxel_mass) - 1
         positions = np.linspace(0, 1000, 101)
         voxel_per_galaxy = np.digitize(self.halo_centers, positions)-1
-        self.voxel_mass_per_galaxy = np.array([self.voxel_mass[*voxel_per_galaxy[i]] for i in range(len(voxel_per_galaxy))])
+        self.voxel_mass_per_galaxy = self.voxel_mass[*self.voxel_per_galaxy.T]
         self.matter_overdensity_per_galaxy = (self.voxel_mass_per_galaxy)/np.mean(self.voxel_mass)-1
 
 def unbias(x: np.ndarray, bias: float):
