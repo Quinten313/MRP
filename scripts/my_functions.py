@@ -117,7 +117,7 @@ class LoadSimulation:
         self.galaxy_overdensity = self.number_density / np.mean(self.number_density) - 1
         self.voxel_per_galaxy = np.digitize(self.halo_centers, positions)-1    # Minus 1: np.digitize starts numbering bins at 1
         self.number_density_per_galaxy = np.array([self.number_density[*self.voxel_per_galaxy[i]] for i in range(len(self.voxel_per_galaxy))])
-        self.galaxy_overdensity_per_galaxy = (self.number_density_per_galaxy - np.mean(self.number_density)) - 1
+        self.galaxy_overdensity_per_galaxy = self.number_density_per_galaxy / np.mean(self.number_density) - 1
         self.mean_galaxy_number_density = np.mean(self.number_density)
 
     def calculate_masses(self: object, path: str):
@@ -241,7 +241,7 @@ def plot_galaxy_overdensity(ax: Axes, number_density_per_galaxy: np.ndarray, mea
         label (str, optional): Label of datapoints. Defaults to None
     """
     bin_centers, v_mean, v_err = velocity_binned_galaxies(number_density_per_galaxy, v)
-    ax.errorbar(bin_centers/mean_galaxy_number_density, v_mean, v_err, linestyle='', c=c, label=label)
+    ax.errorbar(bin_centers/mean_galaxy_number_density, v_mean, v_err, linestyle='', c=c, label=label, capsize=1)
 
 def plot_matter_overdensity(ax: Axes, matter_overdensity_per_galaxy: np.ndarray, v: np.ndarray, bins: int=30, c: str='black', label: str=None):
     """Plots the mean absolute peculiar velocity in matter overdensity bins.
@@ -282,8 +282,9 @@ def fit_velocities_galaxies(number_density_per_galaxy: np.ndarray, mean_galaxy_n
         p0 (list, optional): Initial guess of fitting parameters. Defaults to None
     
     Returns:
-        out (tuple[np.ndarray,np.ndarray]):
-        - **popt** (np.ndarray): fitting parameters found by scipy.stats.curve_fit
+        out (tuple[np.ndarray,np.ndarray,np.ndarray,np.ndarray]):
+        - **fit** (np.ndarray): fitting parameters found by scipy.stats.curve_fit
+        - **error** (np.ndarray): errors on fitting parameters found by scipy.stats.curve_fit
         - **x_min** (np.float64): smallest value of the galaxy overdensity + 1
         - **x_max** (np.float64): largest value of the galaxy overdensity + 1
 
@@ -291,8 +292,8 @@ def fit_velocities_galaxies(number_density_per_galaxy: np.ndarray, mean_galaxy_n
     bin_centers, v_mean, v_err = velocity_binned_galaxies(number_density_per_galaxy, v)
     bin_centers = bin_centers / mean_galaxy_number_density                              # Change from number density to density
     mask_nans = ~np.isnan(v_mean)
-    fit = curve_fit(velocity_function, bin_centers[mask_nans], v_mean[mask_nans], sigma=v_err[mask_nans])[0]
-    return fit, np.nanmin(bin_centers), np.nanmax(bin_centers)
+    fit, covariance = curve_fit(velocity_function, bin_centers[mask_nans], v_mean[mask_nans], sigma=v_err[mask_nans])
+    return fit, np.diagonal(covariance)**.5, np.nanmin(bin_centers), np.nanmax(bin_centers)
 
 def plot_fit_galaxies(ax: Axes, number_density_per_galaxy: np.ndarray, mean_galaxy_number_density: float, v: np.ndarray, bias: float=1., p0: list=None, c: str='r', label: str='fit'):
     """Plots a line fitted to the velocities as a function of galaxy overdensity + 1.
@@ -309,12 +310,15 @@ def plot_fit_galaxies(ax: Axes, number_density_per_galaxy: np.ndarray, mean_gala
         label (str, optional): Label of fitted line. Defaults to fit
     
     Returns:
-        popt (np.ndarray): fitting parameters found by scipy.stats.curve_fit 
+        out (tuple[np.ndarray,np.ndarray,np.ndarray,np.ndarray]):
+        - **fit** (np.ndarray): fitting parameters found by scipy.stats.curve_fit
+        - **error** (np.ndarray): errors on fitting parameters found by scipy.stats.curve_fit
+
     """
-    fit, x_min, x_max = fit_velocities_galaxies(number_density_per_galaxy, mean_galaxy_number_density, v, p0=None)
+    fit, error, x_min, x_max = fit_velocities_galaxies(number_density_per_galaxy, mean_galaxy_number_density, v, p0=None)
     xx = np.logspace(np.log10(x_min), np.log10(x_max), 100)
     ax.errorbar(unbias(xx, bias), velocity_function(xx, *fit), c=c, label=label, zorder=-10)
-    return fit
+    return fit, error
 
 def plot_fit_matter(ax: Axes, matter_overdensity_per_galaxy: np.ndarray, v: np.ndarray, bins: int=30, p0: list=None, c: str='r', label: str='fit'):
     """Plots a line fitted to the velocities as a function of matter overdensity + 1
@@ -333,11 +337,11 @@ def plot_fit_matter(ax: Axes, matter_overdensity_per_galaxy: np.ndarray, v: np.n
     """
     bin_centers, v_mean, v_err = velocity_binned_matter(matter_overdensity_per_galaxy, v)
     mask_nans = ~np.isnan(v_mean)
-    fit = curve_fit(velocity_function, bin_centers[mask_nans], v_mean[mask_nans], sigma=v_err[mask_nans])[0]
+    fit, covariance = curve_fit(velocity_function, bin_centers[mask_nans], v_mean[mask_nans], sigma=v_err[mask_nans])
 
     xx = np.logspace(np.log10(np.nanmin(bin_centers)), np.log10(np.nanmax(bin_centers)))
     ax.plot(xx, velocity_function(xx, *fit), c=c, label=label, zorder=-10)
-    return fit
+    return fit, np.diagonal(covariance)**.5
 
 def five_point_stencil(y: np.ndarray, boxsize: float, dimension: int):
     """This function approximates the derivative of a property in one dimension using the five point stencil for data with shape (n_bins, n_bins, n_bins).
