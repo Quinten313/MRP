@@ -181,8 +181,8 @@ def calc_bin_centers(bin_edges, values):
     return np.array(bin_centers)
 
 def velocity_binned_galaxies(number_density_per_galaxy, v) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Calculates the mean absolute peculiar velocity, binned 
-    in galaxy number density, along with its errors
+    """This function calculates the mean absolute peculiar velocity, binned in galaxy number density, along with its errors.
+    This function also removes any data points with error = 0, as this complicates dealing with errors (e.g. in curve_fit()).
 
     Args:
         number_density_per_galaxy (np.ndarray): galaxy number density in corresponding voxel for each galaxy
@@ -200,7 +200,9 @@ def velocity_binned_galaxies(number_density_per_galaxy, v) -> tuple[np.ndarray, 
     v_mean = binned_statistic(number_density_per_galaxy, np.abs(v), statistic='mean', bins=bin_edges)[0]
     v_std = binned_statistic(number_density_per_galaxy, v, statistic='std', bins=bin_edges)[0]
     v_N = binned_statistic(number_density_per_galaxy, np.abs(v), statistic='count', bins=bin_edges)[0]
-    v_err = v_std / np.sqrt(v_N)
+
+    v_mean = np.where(v_std == 0, np.nan, v_mean)
+    v_err = np.where(v_std == 0, np.nan, v_std / np.sqrt(v_N))
     return bin_centers, v_mean, v_err
 
 def velocity_binned_matter(matter_overdensity_per_galaxy: np.ndarray, v: np.ndarray, bins: int=30) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
