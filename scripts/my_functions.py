@@ -292,7 +292,7 @@ def fit_velocities_galaxies(number_density_per_galaxy: np.ndarray, mean_galaxy_n
     bin_centers, v_mean, v_err = velocity_binned_galaxies(number_density_per_galaxy, v)
     bin_centers = bin_centers / mean_galaxy_number_density                              # Change from number density to density
     mask_nans = ~np.isnan(v_mean)
-    fit, covariance = curve_fit(velocity_function, bin_centers[mask_nans], v_mean[mask_nans], sigma=v_err[mask_nans])
+    fit, covariance = curve_fit(velocity_function, bin_centers[mask_nans], v_mean[mask_nans], sigma=v_err[mask_nans], p0=p0)
     return fit, np.diagonal(covariance)**.5, np.nanmin(bin_centers), np.nanmax(bin_centers)
 
 def plot_fit_galaxies(ax: Axes, number_density_per_galaxy: np.ndarray, mean_galaxy_number_density: float, v: np.ndarray, bias: float=1., p0: list=None, c: str='r', label: str='fit'):
@@ -310,12 +310,11 @@ def plot_fit_galaxies(ax: Axes, number_density_per_galaxy: np.ndarray, mean_gala
         label (str, optional): Label of fitted line. Defaults to fit
     
     Returns:
-        out (tuple[np.ndarray,np.ndarray,np.ndarray,np.ndarray]):
+        out (tuple[np.ndarray,np.ndarray]):
         - **fit** (np.ndarray): fitting parameters found by scipy.stats.curve_fit
         - **error** (np.ndarray): errors on fitting parameters found by scipy.stats.curve_fit
-
     """
-    fit, error, x_min, x_max = fit_velocities_galaxies(number_density_per_galaxy, mean_galaxy_number_density, v, p0=None)
+    fit, error, x_min, x_max = fit_velocities_galaxies(number_density_per_galaxy, mean_galaxy_number_density, v, p0=p0)
     xx = np.logspace(np.log10(x_min), np.log10(x_max), 100)
     ax.errorbar(unbias(xx, bias), velocity_function(xx, *fit), c=c, label=label, zorder=-10)
     return fit, error
