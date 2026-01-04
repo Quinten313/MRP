@@ -16,7 +16,7 @@ class LoadSimulation:
     Args:
         path (str): path to SOAP catalog
     """
-    def __init__(self, path):
+    def __init__(self: object, path: str):
         self.data = sw.load(path)
     
     def select_galaxies_fixed_number(self: object, N: int):
@@ -34,12 +34,12 @@ class LoadSimulation:
         self.mask[indices] = True
         self.hmass = halo_mass_all[self.mask]
     
-    def selext_galaxies_mass_threshold(self: object, mass_range: list[float, float]):
+    def selext_galaxies_mass_threshold(self: object, mass_range: list[float]):
         """Loads in all galaxies with subhalo mass within the mass range
 
         Args:
             self (object): simulation object
-            mass_range (list[float, float]): subhalo mass range in Msun
+            mass_range (list[float]): subhalo mass range in Msun
         """
         halo_mass_all = self.data.exclusive_sphere_50kpc.total_mass.to('Msun')
         self.mass_threshold = mass_range[0]
@@ -231,13 +231,13 @@ def velocity_binned_matter(matter_overdensity_per_galaxy: np.ndarray, v: np.ndar
     v_err = v_std / np.sqrt(v_N)
     return bin_centers, v_mean, v_err
 
-def plot_galaxy_overdensity(ax: Axes, number_density_per_galaxy: np.ndarray, mean_galaxy_number_density: int, v: np.ndarray, c: str='black', label: str=None):
+def plot_galaxy_overdensity(ax: Axes, number_density_per_galaxy: np.ndarray, mean_galaxy_number_density: float, v: np.ndarray, c: str='black', label: str=None):
     """Plots the mean absolute peculiar velocity in galaxy overdensity bins.
 
     Args:
         ax (Axes): Axes object to plot on
         number_density_per_galaxy (np.ndarray): galaxy number density in corresponding voxel for each galaxy
-        mean_galaxy_number_density (int): mean galaxy number density in the simulation
+        mean_galaxy_number_density (float): mean galaxy number density in the simulation
         v (np.ndarray): peculiar velocities of the galaxies
         c (str, optional): Color of datapoints. Defaults to black
         label (str, optional): Label of datapoints. Defaults to None
@@ -256,8 +256,8 @@ def plot_matter_overdensity(ax: Axes, matter_overdensity_per_galaxy: np.ndarray,
         c (str, optional): Color of datapoints. Defaults to black
         label (str, optional): Label of datapoints. Defaults to None
     """
-    bin_centers, v_mean, v_err = velocity_binned_matter(matter_overdensity_per_galaxy, v, bins=30)
-    ax.errorbar(bin_centers, v_mean, v_err, linestyle='', c=c)
+    bin_centers, v_mean, v_err = velocity_binned_matter(matter_overdensity_per_galaxy, v, bins=bins)
+    ax.errorbar(bin_centers, v_mean, v_err, linestyle='', c=c, label=label)
 
 def velocity_function(x: np.ndarray, x0: float, s: float, p: float, c: float) -> np.ndarray:
     """Model of the galaxy velocities as a function of galaxy or matter (number/over)density
