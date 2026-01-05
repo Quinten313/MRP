@@ -73,7 +73,7 @@ class LoadSimulation:
 
     def velocities(self: object):
         """Calculates the peculiar velocity of each central and the relative velocity to its host halo for each satellite.
-        Also calculates the average velocity of galaxies in each voxel.
+        Also calculates the average velocity of galaxies in each voxel using root mean square.
 
         Args:
             self (object): simulation object
@@ -93,15 +93,13 @@ class LoadSimulation:
         self.v_satellites = v_in_halo[~self.is_central]
 
         positions = np.linspace(0, self.boxsize, self.bins+1)
-        self.voxel_velocity = []
-        for v in self.vp.T:
-            voxel_velocity_summation = np.histogramdd(np.array(self.halo_centers), bins = [positions, positions, positions], weights=np.array(v))[0]
-            voxel_count = np.histogramdd(np.array(self.halo_centers), bins = [positions, positions, positions])[0]
+        voxel_count = np.histogramdd(np.array(self.halo_centers), bins = [positions, positions, positions])[0]
+        voxel_velocity_unnormalized = np.array([
+            np.histogramdd(np.array(self.halo_centers), bins = [positions, positions, positions], weights=np.array(v)**2)[0] for v in self.vp.T
+        ])
 
-            voxel_velocity = voxel_velocity_summation / voxel_count
-            voxel_velocity[np.isnan(voxel_velocity)] = 0
-            self.voxel_velocity.append(voxel_velocity)
-        self.voxel_velocity = np.array(self.voxel_velocity)
+        self.voxel_velocity = np.sqrt(voxel_velocity_unnormalized / voxel_count)
+        self.voxel_velocity_abs = np.sum(self.voxel_velocity**2, axis=0)**.5
 
     def bin_galaxies(self: object, bins: int):
         """Calculates the galaxy number density per voxel and adds 
