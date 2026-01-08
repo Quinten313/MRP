@@ -99,7 +99,7 @@ class LoadSimulation:
             np.histogramdd(np.array(self.halo_centers), bins = [positions]*3, weights=np.array(v)**2)[0] for v in self.vp.T
         ])
 
-        self.voxel_velocity = np.sqrt(voxel_velocity_sum_of_squares / (voxel_count-1))
+        self.voxel_velocity = np.sqrt(voxel_velocity_sum_of_squares / voxel_count)
         self.voxel_velocity_abs = np.sum(self.voxel_velocity**2, axis=0)**.5
 
         voxel_velocity_squared_std = np.array([
