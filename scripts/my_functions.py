@@ -110,8 +110,8 @@ class LoadSimulation:
                 bins=[positions]*3
             )[0] for v in self.vp.T
         ])
-        self.voxel_velocity_std = np.sqrt(voxel_velocity_squared_std / np.sqrt(voxel_count-1))
-        self.voxel_velocity_std_abs = np.sum(self.voxel_velocity_std**2, axis=0)**.5
+        self.voxel_velocity_err = np.sqrt(voxel_velocity_squared_std / np.sqrt(voxel_count-1))
+        self.voxel_velocity_err_abs = np.sum(self.voxel_velocity_err**2, axis=0)**.5
 
     def bin_galaxies(self: object, bins: int):
         """Calculates the galaxy number density per voxel and adds 
@@ -353,6 +353,62 @@ def plot_fit_matter(ax: Axes, matter_overdensity_per_galaxy: np.ndarray, v: np.n
     xx = np.logspace(np.log10(np.nanmin(bin_centers)), np.log10(np.nanmax(bin_centers)))
     ax.plot(xx, velocity_function(xx, *fit), c=c, label=label, zorder=-10)
     return fit, np.diagonal(covariance)**.5
+
+def inter_voxel_errors(delta_g, v, bin_edges, count):
+    binned_std_inter = binned_statistic(
+        delta_g+1,
+        v,
+        statistic='std',
+        bins=bin_edges,
+    )[0]
+    binned_err_inter = binned_std_inter / np.sqrt(count-1)
+    return binned_err_inter
+
+def intra_voxel_errors(delta_g, v_std, bin_edges, count):
+    mask_nans = ~np.isnan(v_std)
+    binned_err_intra_sum_of_squares = np.histogram(delta_g[mask_nans]+1, bins=bin_edges, weights=v_std[mask_nans]**2)[0]
+    binned_err_intra = np.sqrt(binned_err_intra_sum_of_squares) / (count-1)
+    binned_err_intra[binned_err_intra == 0] = np.nan
+    return binned_err_intra
+
+def binned_voxel_velocity_errors(delta_g, v, v_std, bin_edges, count):
+    binned_err_inter = inter_voxel_errors(delta_g, v, bin_edges, count)
+    binned_err_intra = intra_voxel_errors(delta_g, v_std, bin_edges, count)
+    binned_err = np.sqrt(binned_err_inter**2 + binned_err_intra**2)
+    return binned_err
+
+def bin_voxel_velocity(number_density, n_g_mean, voxel_velocity, voxel_velocity_err, bin_edges=None):
+    """This function bins the RMS voxel velocities in galaxy overdensity bins
+    and calculates the error in each bin based on the inter- and intra-voxel errors in each bin.
+
+    Args:
+        number_density (np.array): n_bins^3 shaped array containing the galaxy number density within each voxel
+        n_g_mean (float): mean galaxy number density of all voxels
+        voxel_velocity (np.ndarray): n_bins^3 shaped array containing the RMS velocity of each voxel
+        voxel_velocity_err (np.ndarray): error on voxel_velocity
+        bin_edges (np.array, optional): bin edges to bin the galaxies in delta_g+1 bins. Defaults to None.
+
+    Returns:
+        out (tuple[np.ndarray,np.ndarray,np.ndarray]):
+        - **bin_centers** (np.ndarray): average overdensity within a bin
+        - **v_binned** (np.ndarray): average RMS velocity in a galaxy overdensity bin
+        - **v_binned_err** (np.ndarray): error on v_binned
+    """
+    mask = number_density > 0
+
+    v = voxel_velocity[mask].flatten()
+    v_std = voxel_velocity_err[mask].flatten()
+    n_g = number_density[mask].flatten()
+    delta_g = n_g / n_g_mean - 1
+
+    if bin_edges == None:
+        bin_edges = nonlinear_bins(number_density) / n_g_mean
+    bin_centers = calc_bin_centers(bin_edges, delta_g+1)
+
+    count = np.histogram(delta_g+1, bin_edges)[0]
+    v_binned = np.histogram(delta_g+1, bin_edges, weights=v)[0] / count
+    v_binned_err = binned_voxel_velocity_errors(delta_g, v, v_std, bin_edges, count)
+    return bin_centers, v_binned, v_binned_err
 
 def five_point_stencil(y: np.ndarray, boxsize: float, dimension: int):
     """This function approximates the derivative of a property in one dimension using the five point stencil for data with shape (n_bins, n_bins, n_bins).
