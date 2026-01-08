@@ -1,6 +1,7 @@
 import swiftsimio as sw
 import numpy as np
 from scipy.stats import binned_statistic
+from scipy.stats import binned_statistic_dd
 from scipy.optimize import curve_fit
 from matplotlib.axes import Axes
 
@@ -93,13 +94,24 @@ class LoadSimulation:
         self.v_satellites = v_in_halo[~self.is_central]
 
         positions = np.linspace(0, self.boxsize, self.bins+1)
-        voxel_count = np.histogramdd(np.array(self.halo_centers), bins = [positions, positions, positions])[0]
-        voxel_velocity_unnormalized = np.array([
-            np.histogramdd(np.array(self.halo_centers), bins = [positions, positions, positions], weights=np.array(v)**2)[0] for v in self.vp.T
+        voxel_count = np.histogramdd(np.array(self.halo_centers), bins = [positions]*3)[0]
+        voxel_velocity_sum_of_squares = np.array([
+            np.histogramdd(np.array(self.halo_centers), bins = [positions]*3, weights=np.array(v)**2)[0] for v in self.vp.T
         ])
 
-        self.voxel_velocity = np.sqrt(voxel_velocity_unnormalized / voxel_count)
+        self.voxel_velocity = np.sqrt(voxel_velocity_sum_of_squares / (voxel_count-1))
         self.voxel_velocity_abs = np.sum(self.voxel_velocity**2, axis=0)**.5
+
+        voxel_velocity_squared_std = np.array([
+            binned_statistic_dd(
+                self.halo_centers, 
+                v**2, 
+                statistic='std', 
+                bins=[positions]*3
+            )[0] for v in self.vp.T
+        ])
+        self.voxel_velocity_std = np.sqrt(voxel_velocity_squared_std / np.sqrt(voxel_count-1))
+        self.voxel_velocity_std_abs = np.sum(self.voxel_velocity_std**2, axis=0)**.5
 
     def bin_galaxies(self: object, bins: int):
         """Calculates the galaxy number density per voxel and adds 
