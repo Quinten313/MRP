@@ -1,7 +1,6 @@
 import swiftsimio as sw
 import numpy as np
-from scipy.stats import binned_statistic
-from scipy.stats import binned_statistic_dd
+from scipy.stats import binned_statistic, binned_statistic_dd
 from scipy.optimize import curve_fit
 from matplotlib.axes import Axes
 
@@ -147,6 +146,8 @@ class LoadSimulation:
         self.voxel_mass_per_galaxy = self.voxel_mass[*self.voxel_per_galaxy.T]
         self.matter_overdensity_per_galaxy = (self.voxel_mass_per_galaxy)/np.mean(self.voxel_mass)-1
 
+
+#----------General utility----------
 def unbias(x: np.ndarray, bias: float):
     """Corrects an overdensity for its bias
 
@@ -190,6 +191,57 @@ def calc_bin_centers(bin_edges, values):
     bin_centers = [np.nanmean(values[bin_number == bin_numbers]) for bin_number in range(len(bin_edges)-1)]
     return np.array(bin_centers)
 
+def velocity_function(x: np.ndarray, x0: float, s: float, p: float, c: float) -> np.ndarray:
+    """Model of the galaxy velocities as a function of galaxy or matter (number/over)density
+
+    Args:
+        x (np.ndarray): galaxy or matter (number/over)density
+        x0 (float): fitting parameter related to the transition point between the powerlaws
+        s (float): fitting parameter related to the slope of the second powerlaw
+        p (float): fitting parameter related to the speed of the transition between the powerlaws
+        c (float): fitting parameter related to the velocity plateau that is the first 'powerlaw'
+
+    Returns:
+        np.ndarray: velocities predicted by the function
+    """
+    return (c**p + (x/x0)**(s*p))**(1/p)
+
+def five_point_stencil(y: np.ndarray, boxsize: float, dimension: int):
+    """This function approximates the derivative of a property in one dimension using the five point stencil for data with shape (n_bins, n_bins, n_bins).
+    
+    Args:
+        y (np.ndarray): n_bins x n_bins x n_bins sized matrix, containing the values of the property of which the derivative is calculated
+        boxsize (float): box size in Mpc
+        dimension (int): dimension in which the five point stencil is calculated (e.g. 0 for x, etc.)
+    
+    Returns:
+        dfdx (np.ndarray): n_bins x n_bins x n_bins sized matrix containing the derivatives
+    """
+    # Five point stencil formula
+    def derivative(y1, y2, y4, y5):
+        return (-y5 + 8*y4 - 8*y2 + y1) / (12*voxel_size)
+    
+    # Select correct y_i's given the supplied dimension
+    def select_range(range, dimension):
+        range3D = [slice(None), slice(None), slice(None)]
+        range3D[dimension] = range
+        return tuple(range3D)
+    
+    n_bins = len(y)
+    voxel_size = boxsize / n_bins
+    indices = np.arange(n_bins)
+
+    range1, range2, range4, range5 = [np.roll(indices, shift) for shift in [2, 1, -1, -2]]
+    dfdx = derivative(
+        y[select_range(range1, dimension)], 
+        y[select_range(range2, dimension)], 
+        y[select_range(range4, dimension)], 
+        y[select_range(range5, dimension)]
+    )
+    return dfdx
+
+
+#----------Analysis using mean absolute velocities of individual galaxies----------
 def velocity_binned_galaxies(number_density_per_galaxy, v) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """This function calculates the mean absolute peculiar velocity, binned in galaxy number density, along with its errors.
     This function also removes any data points with error = 0, as this complicates dealing with errors (e.g. in curve_fit()).
@@ -269,21 +321,6 @@ def plot_matter_overdensity(ax: Axes, matter_overdensity_per_galaxy: np.ndarray,
     bin_centers, v_mean, v_err = velocity_binned_matter(matter_overdensity_per_galaxy, v, bins=bins)
     ax.errorbar(bin_centers, v_mean, v_err, linestyle='', c=c, label=label)
 
-def velocity_function(x: np.ndarray, x0: float, s: float, p: float, c: float) -> np.ndarray:
-    """Model of the galaxy velocities as a function of galaxy or matter (number/over)density
-
-    Args:
-        x (np.ndarray): galaxy or matter (number/over)density
-        x0 (float): fitting parameter related to the transition point between the powerlaws
-        s (float): fitting parameter related to the slope of the second powerlaw
-        p (float): fitting parameter related to the speed of the transition between the powerlaws
-        c (float): fitting parameter related to the velocity plateau that is the first 'powerlaw'
-
-    Returns:
-        np.ndarray: velocities predicted by the function
-    """
-    return (c**p + (x/x0)**(s*p))**(1/p)
-
 def fit_velocities_galaxies(number_density_per_galaxy: np.ndarray, mean_galaxy_number_density: float, v: np.ndarray, p0: list=None):
     """Uses curve_fit to find the best fit through the velocities as a function of galaxy overdensity + 1
 
@@ -354,6 +391,8 @@ def plot_fit_matter(ax: Axes, matter_overdensity_per_galaxy: np.ndarray, v: np.n
     ax.plot(xx, velocity_function(xx, *fit), c=c, label=label, zorder=-10)
     return fit, np.diagonal(covariance)**.5
 
+
+#----------Analysis using root mean square voxel velocities----------
 def inter_voxel_errors(delta_g, v, bin_edges, count):
     binned_std_inter = binned_statistic(
         delta_g+1,
@@ -410,40 +449,8 @@ def bin_voxel_velocity(number_density, n_g_mean, voxel_velocity, voxel_velocity_
     v_binned_err = binned_voxel_velocity_errors(delta_g, v, v_std, bin_edges, count)
     return bin_centers, v_binned, v_binned_err
 
-def five_point_stencil(y: np.ndarray, boxsize: float, dimension: int):
-    """This function approximates the derivative of a property in one dimension using the five point stencil for data with shape (n_bins, n_bins, n_bins).
-    
-    Args:
-        y (np.ndarray): n_bins x n_bins x n_bins sized matrix, containing the values of the property of which the derivative is calculated
-        boxsize (float): box size in Mpc
-        dimension (int): dimension in which the five point stencil is calculated (e.g. 0 for x, etc.)
-    
-    Returns:
-        dfdx (np.ndarray): n_bins x n_bins x n_bins sized matrix containing the derivatives
-    """
-    # Five point stencil formula
-    def derivative(y1, y2, y4, y5):
-        return (-y5 + 8*y4 - 8*y2 + y1) / (12*voxel_size)
-    
-    # Select correct y_i's given the supplied dimension
-    def select_range(range, dimension):
-        range3D = [slice(None), slice(None), slice(None)]
-        range3D[dimension] = range
-        return tuple(range3D)
-    
-    n_bins = len(y)
-    voxel_size = boxsize / n_bins
-    indices = np.arange(n_bins)
 
-    range1, range2, range4, range5 = [np.roll(indices, shift) for shift in [2, 1, -1, -2]]
-    dfdx = derivative(
-        y[select_range(range1, dimension)], 
-        y[select_range(range2, dimension)], 
-        y[select_range(range4, dimension)], 
-        y[select_range(range5, dimension)]
-    )
-    return dfdx
-
+#----------Calculation and analysis of voxel mass----------
 def calc_voxel_mass(path_data: str, output_file: str, bins: int):
     """Calculates the mass density divided in bins^3 cubical voxels using the snapshot data.
     This mass density is written to a .npy file.
@@ -497,7 +504,6 @@ def calc_voxel_mass(path_data: str, output_file: str, bins: int):
         masses3D.append(mass_grid.reshape([bins, bins]))
         print(i)
     np.save(output_file, np.array(masses3D))
-
 
 def power_spectrum(simulation: object, overdensity_matrix: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Calculates the power spectrum of any binned overdensity and removes shot noise.
