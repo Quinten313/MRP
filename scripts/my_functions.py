@@ -1,5 +1,6 @@
 import swiftsimio as sw
 import numpy as np
+from dataclasses import dataclass
 from scipy.stats import binned_statistic, binned_statistic_dd
 from scipy.optimize import curve_fit
 from matplotlib.axes import Axes
@@ -393,6 +394,25 @@ def plot_fit_matter(ax: Axes, matter_overdensity_per_galaxy: np.ndarray, v: np.n
 
 
 #----------Analysis using root mean square voxel velocities----------
+@dataclass
+class VoxelVelocity:
+    """Dataclass containing often used variables
+
+    Args:
+        number_density (np.array): n_bins^3 shaped array containing the galaxy number density within each voxel
+        n_g_mean (float): mean galaxy number density of all voxels
+        voxel_velocity (np.ndarray): n_bins^3 shaped array containing the RMS velocity of each voxel
+        voxel_velocity_err (np.ndarray): error on voxel_velocity
+        galaxy_overdensity (np.ndarray): n_bins^3 shaped array containing the galaxy overdensity of each voxel
+    """
+    number_density: np.ndarray
+    n_g_mean: float
+    voxel_velocity: np.ndarray
+    voxel_velocity_err: np.ndarray
+
+    def galaxy_overdensity(self):
+        return self.number_density / self.n_g_mean
+
 def inter_voxel_errors(delta_g, v, bin_edges, count):
     binned_std_inter = binned_statistic(
         delta_g+1,
@@ -416,15 +436,12 @@ def binned_voxel_velocity_errors(delta_g, v, v_std, bin_edges, count):
     binned_err = np.sqrt(binned_err_inter**2 + binned_err_intra**2)
     return binned_err, binned_err_inter, binned_err_intra
 
-def bin_voxel_velocity(number_density, n_g_mean, voxel_velocity, voxel_velocity_err, bin_edges=None):
+def bin_voxel_velocity(vv, bin_edges=None):
     """This function bins the RMS voxel velocities in galaxy overdensity bins
     and calculates the error in each bin based on the inter- and intra-voxel errors in each bin.
 
     Args:
-        number_density (np.array): n_bins^3 shaped array containing the galaxy number density within each voxel
-        n_g_mean (float): mean galaxy number density of all voxels
-        voxel_velocity (np.ndarray): n_bins^3 shaped array containing the RMS velocity of each voxel
-        voxel_velocity_err (np.ndarray): error on voxel_velocity
+        vv (VoxelVelocity): dataclass containing information about voxel number density and velocity
         bin_edges (np.array, optional): bin edges to bin the galaxies in delta_g+1 bins. Defaults to None.
 
     Returns:
@@ -434,15 +451,15 @@ def bin_voxel_velocity(number_density, n_g_mean, voxel_velocity, voxel_velocity_
         - **v_binned_err** (np.ndarray): error on v_binned
         - **error_terms** (tuple[np.ndarray]): inter- and intra-voxel error terms on v_binned
     """
-    mask = number_density > 0
+    mask = vv.number_density > 0
 
-    v = voxel_velocity[mask].flatten()
-    v_std = voxel_velocity_err[mask].flatten()
-    n_g = number_density[mask].flatten()
-    delta_g = n_g / n_g_mean - 1
+    v = vv.voxel_velocity[mask].flatten()
+    v_std = vv.voxel_velocity_err[mask].flatten()
+    n_g = vv.number_density[mask].flatten()
+    delta_g = n_g / vv.n_g_mean - 1
 
     if bin_edges == None:
-        bin_edges = nonlinear_bins(number_density) / n_g_mean
+        bin_edges = nonlinear_bins(vv.number_density) / vv.n_g_mean
     bin_centers = calc_bin_centers(bin_edges, delta_g+1)
 
     count = np.histogram(delta_g+1, bin_edges)[0]
@@ -450,6 +467,31 @@ def bin_voxel_velocity(number_density, n_g_mean, voxel_velocity, voxel_velocity_
     v_binned_err, binned_err_inter, binned_err_intra = binned_voxel_velocity_errors(delta_g, v, v_std, bin_edges, count)
     return bin_centers, v_binned, v_binned_err, (binned_err_inter, binned_err_intra)
 
+def plot_voxel_velocity(ax, vv, bin_edges=None, c=None, label=None):
+    bin_centers, v_binned, v_binned_err, _ = bin_voxel_velocity(vv, bin_edges)
+    ax.errorbar(bin_centers, v_binned, v_binned_err, linestyle='', capsize=1, c=c, label=label)
+
+def fit_voxel_velocity(vv, bin_edges=None, p0=None):
+    bin_centers, v_binned, v_binned_err, _ = bin_voxel_velocity(vv, bin_edges)
+    mask_nan = (~np.isnan(bin_centers)&~np.isnan(v_binned)&~np.isnan(v_binned_err))
+    fit, covariance = curve_fit(velocity_function, bin_centers[mask_nan], v_binned[mask_nan], sigma=v_binned_err[mask_nan], p0=p0)
+    return bin_centers, fit, np.diagonal(covariance)**.5
+
+def plot_fit_voxel_velocity(ax, vv, bin_edges=None, p0=None, c=None, label=None, plot_data=None):
+    bin_centers, fit, err = fit_voxel_velocity(vv, bin_edges=bin_edges, p0=p0)
+    xx = np.logspace(np.log10(np.min(bin_centers)), np.log10(np.max(bin_centers)), 100)
+    ax.plot(xx, velocity_function(xx, *fit), c=c, label=label)
+    if not plot_data == None:
+        try:
+            c = plot_data['c']
+        except KeyError:
+            c = None
+        try:
+            label = plot_data['label']
+        except KeyError:
+            label = None
+        plot_voxel_velocity(ax, vv, bin_edges=bin_edges, c=c, label=label)
+    return fit, err
 
 #----------Calculation and analysis of voxel mass----------
 def calc_voxel_mass(path_data: str, output_file: str, bins: int):
