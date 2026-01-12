@@ -414,7 +414,7 @@ def binned_voxel_velocity_errors(delta_g, v, v_std, bin_edges, count):
     binned_err_inter = inter_voxel_errors(delta_g, v, bin_edges, count)
     binned_err_intra = intra_voxel_errors(delta_g, v_std, bin_edges, count)
     binned_err = np.sqrt(binned_err_inter**2 + binned_err_intra**2)
-    return binned_err
+    return binned_err, binned_err_inter, binned_err_intra
 
 def bin_voxel_velocity(number_density, n_g_mean, voxel_velocity, voxel_velocity_err, bin_edges=None):
     """This function bins the RMS voxel velocities in galaxy overdensity bins
@@ -428,10 +428,11 @@ def bin_voxel_velocity(number_density, n_g_mean, voxel_velocity, voxel_velocity_
         bin_edges (np.array, optional): bin edges to bin the galaxies in delta_g+1 bins. Defaults to None.
 
     Returns:
-        out (tuple[np.ndarray,np.ndarray,np.ndarray]):
+        out (tuple[np.ndarray,np.ndarray,np.ndarray,tuple[np.ndarray]]):
         - **bin_centers** (np.ndarray): average overdensity within a bin
         - **v_binned** (np.ndarray): average RMS velocity in a galaxy overdensity bin
         - **v_binned_err** (np.ndarray): error on v_binned
+        - **error_terms** (tuple[np.ndarray]): inter- and intra-voxel error terms on v_binned
     """
     mask = number_density > 0
 
@@ -446,8 +447,8 @@ def bin_voxel_velocity(number_density, n_g_mean, voxel_velocity, voxel_velocity_
 
     count = np.histogram(delta_g+1, bin_edges)[0]
     v_binned = np.histogram(delta_g+1, bin_edges, weights=v)[0] / count
-    v_binned_err = binned_voxel_velocity_errors(delta_g, v, v_std, bin_edges, count)
-    return bin_centers, v_binned, v_binned_err
+    v_binned_err, binned_err_inter, binned_err_intra = binned_voxel_velocity_errors(delta_g, v, v_std, bin_edges, count)
+    return bin_centers, v_binned, v_binned_err, (binned_err_inter, binned_err_intra)
 
 
 #----------Calculation and analysis of voxel mass----------
