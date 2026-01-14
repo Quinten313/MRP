@@ -426,7 +426,7 @@ def inter_voxel_errors(delta_g, v, bin_edges, count):
 def intra_voxel_errors(delta_g, v_std, bin_edges, count):
     mask_nans = ~np.isnan(v_std)
     binned_err_intra_sum_of_squares = np.histogram(delta_g[mask_nans]+1, bins=bin_edges, weights=v_std[mask_nans]**2)[0]
-    binned_err_intra = np.sqrt(binned_err_intra_sum_of_squares) / (count-1)
+    binned_err_intra = np.sqrt(binned_err_intra_sum_of_squares/count) / np.sqrt(count-1)
     binned_err_intra[binned_err_intra == 0] = np.nan
     return binned_err_intra
 
