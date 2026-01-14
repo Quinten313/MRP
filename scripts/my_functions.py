@@ -456,9 +456,9 @@ def bin_voxel_velocity(vv, bin_edges=None):
     mask3 = ~np.isnan(vv.voxel_velocity_err)
     mask = mask1&mask2&mask3
 
-    v = vv.voxel_velocity[mask].flatten()
-    v_err = vv.voxel_velocity_err[mask].flatten()
-    delta_g = vv.galaxy_overdensity()[mask].flatten()
+    v = vv.voxel_velocity[mask]
+    v_err = vv.voxel_velocity_err[mask]
+    delta_g = vv.galaxy_overdensity()[mask]
 
     if type(bin_edges) == type(None):
         bin_edges = nonlinear_bins(vv.number_density) / vv.n_g_mean
@@ -467,6 +467,7 @@ def bin_voxel_velocity(vv, bin_edges=None):
     count = np.histogram(delta_g+1, bin_edges)[0]
     v_binned = np.histogram(delta_g+1, bin_edges, weights=v)[0] / count
     v_binned_err, binned_err_inter, binned_err_intra = binned_voxel_velocity_errors(delta_g, v, v_err, bin_edges, count)
+    bin_centers[np.isnan(v_binned_err)] = np.nan
 
     return bin_centers, v_binned, v_binned_err, (binned_err_inter, binned_err_intra)
 
