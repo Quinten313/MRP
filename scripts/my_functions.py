@@ -1,8 +1,8 @@
 import swiftsimio as sw
 import numpy as np
 from dataclasses import dataclass
-from scipy.stats import binned_statistic, binned_statistic_dd
-from scipy.optimize import curve_fit
+from scipy.stats import binned_statistic, binned_statistic_dd, skewnorm
+from scipy.optimize import curve_fit, minimize
 from matplotlib.axes import Axes
 
 class LoadSimulation:
@@ -446,8 +446,8 @@ def bin_voxel_velocity(vv, bin_edges=None):
 
     Returns:
         out (tuple[np.ndarray,np.ndarray,np.ndarray,tuple[np.ndarray]]):
-        - **bin_centers** (np.ndarray): average overdensity within a bin
-        - **v_binned** (np.ndarray): average RMS velocity in a galaxy overdensity bin
+        - **bin_centers** (np.ndarray): average x value within a bin
+        - **v_binned** (np.ndarray): average RMS velocity in a bin
         - **v_binned_err** (np.ndarray): error on v_binned
         - **error_terms** (tuple[np.ndarray]): inter- and intra-voxel error terms on v_binned
     """
@@ -476,6 +476,19 @@ def plot_voxel_velocity(ax, vv, bin_edges=None, c=None, label=None):
     ax.errorbar(bin_centers, v_binned, v_binned_err, linestyle='', capsize=1, c=c, label=label)
 
 def fit_voxel_velocity(vv, bin_edges=None, p0=None):
+    """Fits a model through the voxel velocities.
+
+    Args:
+        vv (VoxelVelocity): VoxelVelocity object
+        bin_edges (np.ndarray, optional): Bin edges. Defaults to None.
+        p0 (np.ndarray, optional): Initial guess. Defaults to None.
+
+    Returns:
+        out (tuple):
+        - **bin_centers** (np.ndarray): average value within a bin
+        - **fit** (np.ndarray): best fitting parameters found by curve_fit()
+        - **error** (np.ndarray): errors on fitting parameters
+    """
     bin_centers, v_binned, v_binned_err, _ = bin_voxel_velocity(vv, bin_edges)
     mask_nan = (~np.isnan(bin_centers)&~np.isnan(v_binned)&~np.isnan(v_binned_err))
     fit, covariance = curve_fit(velocity_function, bin_centers[mask_nan], v_binned[mask_nan], sigma=v_binned_err[mask_nan], p0=p0)
@@ -496,6 +509,18 @@ def plot_fit_voxel_velocity(ax, vv, bin_edges=None, p0=None, c=None, label=None,
             label = None
         plot_voxel_velocity(ax, vv, bin_edges=bin_edges, c=c, label=label)
     return fit, err
+
+
+#----------Skewnormal distributed voxel velocities----------
+def exponential(x, a, b, c):
+    return a*np.exp(-b*x)+c
+
+def fit_skewnorm_velocity(n_g, v):
+    v = v[n_g > 1]
+    n_g = n_g[n_g > 1]
+    mll = lambda args, v=v, n_g=n_g: -np.sum(np.log(skewnorm.pdf(v, exponential(n_g, *args[:-2]), n_g*args[-2], args[-1])))
+    minimum = minimize(mll, [300, .1, 3, 5, 250]).x
+    return minimum
 
 #----------Calculation and analysis of voxel mass----------
 def calc_voxel_mass(path_data: str, output_file: str, bins: int):
