@@ -207,21 +207,24 @@ def velocity_function(x: np.ndarray, x0: float, s: float, p: float, c: float) ->
     """
     return (c**p + (x/x0)**(s*p))**(1/p)
 
-def five_point_stencil(y: np.ndarray, boxsize: float, dimension: int):
+def five_point_stencil(y: np.ndarray, boxsize: float, dimension: int, order: int=1):
     """This function approximates the derivative of a property in one dimension using the five point stencil for data with shape (n_bins, n_bins, n_bins).
     
     Args:
         y (np.ndarray): n_bins x n_bins x n_bins sized matrix, containing the values of the property of which the derivative is calculated
         boxsize (float): box size in Mpc
         dimension (int): dimension in which the five point stencil is calculated (e.g. 0 for x, etc.)
+        order (int, optional): x'th order derivative. Defaults to first order.
     
     Returns:
         dfdx (np.ndarray): n_bins x n_bins x n_bins sized matrix containing the derivatives
     """
-    # Five point stencil formula
-    def derivative(y1, y2, y4, y5):
-        return (-y5 + 8*y4 - 8*y2 + y1) / (12*voxel_size)
-    
+    # Five point stencil formulae
+    if order == 1:
+        derivative = lambda y1, y2, y3, y4, y5: (-y5 + 8*y4 - 8*y2 + y1) / (12*voxel_size)
+    elif order == 2:
+        derivative = lambda y1, y2, y3, y4, y5: (-y5 + 16*y4 - 30*y3 + 16*y2 - y1) / (12*voxel_size**2)
+
     # Select correct y_i's given the supplied dimension
     def select_range(range, dimension):
         range3D = [slice(None), slice(None), slice(None)]
@@ -232,10 +235,11 @@ def five_point_stencil(y: np.ndarray, boxsize: float, dimension: int):
     voxel_size = boxsize / n_bins
     indices = np.arange(n_bins)
 
-    range1, range2, range4, range5 = [np.roll(indices, shift) for shift in [2, 1, -1, -2]]
+    range1, range2, range3, range4, range5 = [np.roll(indices, shift) for shift in [2, 1, 0, -1, -2]]
     dfdx = derivative(
         y[select_range(range1, dimension)], 
         y[select_range(range2, dimension)], 
+        y[select_range(range3, dimension)], 
         y[select_range(range4, dimension)], 
         y[select_range(range5, dimension)]
     )
@@ -474,6 +478,7 @@ def bin_voxel_velocity(vv, bin_edges=None):
 def plot_voxel_velocity(ax, vv, bin_edges=None, c=None, label=None):
     bin_centers, v_binned, v_binned_err, _ = bin_voxel_velocity(vv, bin_edges)
     ax.errorbar(bin_centers, v_binned, v_binned_err, linestyle='', capsize=1, c=c, label=label)
+    return bin_centers
 
 def fit_voxel_velocity(vv, bin_edges=None, p0=None):
     """Fits a model through the voxel velocities.
