@@ -221,7 +221,7 @@ def five_point_stencil(y: np.ndarray, boxsize: float, dimension: int, order: int
     """
     # Five point stencil formulae
     if order == 1:
-        derivative = lambda y1, y2, y3, y4, y5: (-y5 + 8*y4 - 8*y2 + y1) / (12*voxel_size)
+        derivative = lambda y1, y2, _, y4, y5: (-y5 + 8*y4 - 8*y2 + y1) / (12*voxel_size)
     elif order == 2:
         derivative = lambda y1, y2, y3, y4, y5: (-y5 + 16*y4 - 30*y3 + 16*y2 - y1) / (12*voxel_size**2)
 
@@ -520,11 +520,21 @@ def plot_fit_voxel_velocity(ax, vv, bin_edges=None, p0=None, c=None, label=None,
 def exponential(x, a, b, c):
     return a*np.exp(-b*x)+c
 
+def skewnorm7(n_g, params, x):
+    return skewnorm.pdf(x, exponential(n_g, *params[:3]), n_g*params[3], exponential(n_g, *params[4:]))
+
 def fit_skewnorm_velocity(n_g, v):
     v = v[n_g > 1]
     n_g = n_g[n_g > 1]
     mll = lambda args, v=v, n_g=n_g: -np.sum(np.log(skewnorm.pdf(v, exponential(n_g, *args[:-2]), n_g*args[-2], args[-1])))
-    minimum = minimize(mll, [300, .1, 3, 5, 250]).x
+    minimum = minimize(mll, [30, .1, 3, 5, 250]).x
+    return minimum
+
+def fit_seven_parameter_model(n_g, v):
+    v = v[n_g > 1]
+    n_g = n_g[n_g > 1]
+    mll = lambda args, v=v, n_g=n_g: -np.sum(np.log(skewnorm.pdf(v, exponential(n_g, *args[:3]), n_g*args[3], exponential(n_g, *args[4:]))))
+    minimum = minimize(mll, [30, .1, 3, 5, 20, .1, 250]).x
     return minimum
 
 #----------Calculation and analysis of voxel mass----------
