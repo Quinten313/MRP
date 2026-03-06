@@ -35,19 +35,19 @@ class LoadSimulation:
         self.mask[indices] = True
         self.hmass = halo_mass_all[self.mask]
     
-    def selext_galaxies_mass_threshold(self: object, mass_range: list[float]):
+    def selext_galaxies_mass_threshold(self: object, mass_range: str):
         """Loads in all galaxies with subhalo mass within the mass range
 
         Args:
             self (object): simulation object
-            mass_range (list[float]): subhalo mass range in Msun
+            mass_range (str): subhalo mass range in log10 Msun. Accepted formats: x_y, x-, x+
         """
+        self.mass_tag = mass_range
+        self.mass_threshold, self.mass_limit = str_to_mass_range(mass_range)
         halo_mass_all = self.data.exclusive_sphere_50kpc.total_mass.to('Msun')
-        self.mass_threshold = mass_range[0]
-        self.mass_limit = mass_range[1]
         self.mask = (halo_mass_all.value >= self.mass_threshold) & (halo_mass_all.value < self.mass_limit)
         self.hmass = halo_mass_all[self.mask]
-        print(f'Mass range: {np.log10(mass_range[0])} - {np.log10(mass_range[1])}\nGalaxies: {np.sum(self.mask)}')
+        print(f'Mass range: {np.log10(self.mass_threshold)} - {np.log10(self.mass_limit)}\nGalaxies: {np.sum(self.mask)}')
 
     def load_all(self: object, bins: int):
         """Calls load_variables, velocities and bin_galaxies
@@ -149,6 +149,27 @@ class LoadSimulation:
 
 
 #----------General utility----------
+def str_to_mass_range(mass_range):
+    mass_range = mass_range.split('_')
+    if len(mass_range) == 2:
+        return str_to_float(mass_range[0]), str_to_float(mass_range[1])
+    elif len(mass_range) == 1:
+        if mass_range[0][-1] == '+':
+            return str_to_float(mass_range[0][:-1]), np.inf
+        elif mass_range[0][-1] == '-':
+            return 0, str_to_float(mass_range[0][:-1])
+    else:
+        raise Exception(f"Invalid notation: {mass_range}")
+
+def str_to_float(x):
+    split = x.split('e')
+    if len(split) == 1:
+        return 10**float(split[0])
+    elif len(split) == 2:
+        return float(split[0]) * 10**float(split[1])
+    else:
+        raise Exception(f"Invalid notation: {x}")
+
 def unbias(x: np.ndarray, bias: float):
     """Corrects an overdensity for its bias
 
