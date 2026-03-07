@@ -31,7 +31,7 @@ class LoadSimulation:
             self (object): simulation object
             N (int): number of galaxies to include
         """
-        halo_mass_all = self.data.exclusive_sphere_50kpc.total_mass.to('Msun')
+        halo_mass_all = np.array(self.data.exclusive_sphere_50kpc.total_mass.to('Msun'))
         order = np.argsort(halo_mass_all)
         self.mass_threshold = halo_mass_all[order][-int(N)]
         indices = order[-int(N):]
@@ -48,8 +48,8 @@ class LoadSimulation:
         """
         self.mass_tag = mass_range
         self.mass_threshold, self.mass_limit = str_to_mass_range(mass_range)
-        halo_mass_all = self.data.exclusive_sphere_50kpc.total_mass.to('Msun')
-        self.mask = (halo_mass_all.value >= self.mass_threshold) & (halo_mass_all.value < self.mass_limit)
+        halo_mass_all = np.array(self.data.exclusive_sphere_50kpc.total_mass.to('Msun'))
+        self.mask = (halo_mass_all >= self.mass_threshold) & (halo_mass_all < self.mass_limit)
         self.hmass = halo_mass_all[self.mask]
         print(f'Mass range: {np.log10(self.mass_threshold)} - {np.log10(self.mass_limit)}\nGalaxies: {np.sum(self.mask)}')
 
@@ -72,8 +72,8 @@ class LoadSimulation:
         """
         self.boxsize = self.data.metadata.boxsize[0].value
         self.is_central = self.data.input_halos.is_central[self.mask] == 1
-        self.halo_centers = self.data.input_halos.halo_centre.to_physical()[self.mask]
-        self.vp = self.data.exclusive_sphere_50kpc.centre_of_mass_velocity.to('km/s').to_physical()[self.mask]
+        self.halo_centers = np.array(self.data.input_halos.halo_centre.to_physical()[self.mask])
+        self.vp = np.array(self.data.exclusive_sphere_50kpc.centre_of_mass_velocity.to('km/s').to_physical()[self.mask])
         self.vp_abs = np.sum(self.vp**2, axis=1)**.5
 
     def velocities(self: object):
@@ -83,7 +83,7 @@ class LoadSimulation:
         Args:
             self (object): simulation object
         """
-        hostid = self.data.input_halos_hbtplus.host_fofid[self.mask]
+        hostid = np.array(self.data.input_halos_hbtplus.host_fofid[self.mask])
 
         hostid_central = hostid[self.is_central]
         velocity_central = self.vp_abs[self.is_central]
@@ -92,7 +92,7 @@ class LoadSimulation:
         velocity_adjusted_mapping[hostid_central] = velocity_central
 
         velocity_of_host = velocity_adjusted_mapping[hostid]
-        v_in_halo = self.vp_abs.value - velocity_of_host
+        v_in_halo = self.vp_abs - velocity_of_host
         
         self.v_centrals = velocity_central
         self.v_satellites = v_in_halo[~self.is_central]
@@ -127,7 +127,7 @@ class LoadSimulation:
         """
         self.bins=bins
         positions = np.linspace(0, self.boxsize, self.bins+1)
-        self.number_density, edges = np.histogramdd(self.halo_centers.value, bins=[positions, positions, positions])
+        self.number_density, edges = np.histogramdd(self.halo_centers, bins=[positions, positions, positions])
         self.galaxy_overdensity = self.number_density / np.mean(self.number_density) - 1
         self.voxel_per_galaxy = np.digitize(self.halo_centers, positions)-1    # Minus 1: np.digitize starts numbering bins at 1
         self.number_density_per_galaxy = self.number_density[*self.voxel_per_galaxy.T]
@@ -151,6 +151,15 @@ class LoadSimulation:
         self.voxel_mass_per_galaxy = self.voxel_mass[*self.voxel_per_galaxy.T]
         self.matter_overdensity_per_galaxy = (self.voxel_mass_per_galaxy)/np.mean(self.voxel_mass)-1
 
+def save_simulation(simulation_tag, snapshot, mass_tag, n_bins):
+    simulation = LoadSimulation(simulation_tag, snapshot)
+    simulation.selext_galaxies_mass_threshold(mass_tag)
+    simulation.load_all(n_bins)
+    delattr(simulation, 'data')
+    np.save(f'../storage/simulations/{simulation.simulation}_{simulation.snapshot}_{simulation.mass_tag}_{n_bins}', simulation)
+
+def load_simulation(simulation_tag, snapshot, mass_tag, n_bins):
+    return np.load(f'../storage/simulations/{simulation_tag}_{snapshot}_{mass_tag}_{n_bins}.npy', allow_pickle=True).item()
 
 #----------General utility----------
 def str_to_mass_range(mass_range):
