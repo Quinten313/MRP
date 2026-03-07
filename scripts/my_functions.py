@@ -15,9 +15,13 @@ class LoadSimulation:
     - calculate_masses: calculates voxel mass and matter overdensity both per voxel and per galaxy
 
     Args:
-        path (str): path to SOAP catalog
+        simulation (str): name of simulation
+        snapshot (str): index of snapshot
     """
-    def __init__(self: object, path: str):
+    def __init__(self: object, simulation: str, snapshot: str):
+        path = f'/net/hydra/data2/quinten/data/{simulation}/SOAP-HBT/halo_properties_{snapshot}.hdf5'
+        self.simulation = simulation
+        self.snapshot = snapshot
         self.data = sw.load(path)
     
     def select_galaxies_fixed_number(self: object, N: int):
