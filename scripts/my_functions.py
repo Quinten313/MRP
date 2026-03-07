@@ -562,6 +562,21 @@ def fit_seven_parameter_model(n_g, v):
     minimum = minimize(mll, [30, .1, 3, 5, 20, .1, 250]).x
     return minimum
 
+def save_model7(x: LoadSimulation | list[str, str, str, int]):
+    if type(x) == list:
+        simulation_tag, snapshot, mass_tag, n_bins = x
+        simulation = LoadSimulation(simulation_tag, snapshot)
+        simulation.selext_galaxies_mass_threshold(mass_tag)
+        simulation.load_all(n_bins)
+    else:
+        simulation = x
+        mass_tag, n_bins = simulation.mass_tag, simulation.bins
+    model7 = fit_seven_parameter_model(simulation.number_density, simulation.voxel_velocity[0])
+    np.save(f'../storage/model7/{simulation.simulation}_{simulation.snapshot}_{simulation.mass_tag}_{n_bins}', model7)
+
+def load_model7(simulation, snapshot, mass_tag, n_bins):
+    return np.load(f'../storage/model7/{simulation}_{snapshot}_{mass_tag}_{n_bins}.npy')
+
 #----------Calculation and analysis of voxel mass----------
 def calc_voxel_mass(path_data: str, output_file: str, bins: int):
     """Calculates the mass density divided in bins^3 cubical voxels using the snapshot data.
