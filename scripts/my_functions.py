@@ -557,7 +557,17 @@ def exponential(x, a, b, c):
 def skewnorm7(n_g, params, x):
     return skewnorm.pdf(x, exponential(n_g, *params[:3]), n_g*params[3], exponential(n_g, *params[4:]))
 
+def fit_one_bin_skewnorm(v, p0=[3, 10, 250]):
+    mll = lambda args, v=v: -np.sum(np.log(skewnorm.pdf(v, *args)))
+    alpha, xi, omega = minimize(mll, p0).x
+    return alpha, xi, omega
+
+def model7_to_skewnorm(n_g, args):
+    return exponential(n_g, *args[:3]), n_g*args[3], exponential(n_g, *args[4:])
+
 def fit_skewnorm_velocity(n_g, v):
+    """Fits a skewnormal distribution as function of numbder density'
+    to all data, with alpha as exponential, xi as linear and omega as a constant"""
     v = v[n_g > 1]
     n_g = n_g[n_g > 1]
     mll = lambda args, v=v, n_g=n_g: -np.sum(np.log(skewnorm.pdf(v, exponential(n_g, *args[:-2]), n_g*args[-2], args[-1])))
