@@ -18,36 +18,36 @@ class LoadSimulation:
         simulation (str): name of simulation
         snapshot (str): index of snapshot
     """
-    def __init__(self: object, simulation: str, snapshot: str):
+    def __init__(self: object, simulation: str, snapshot: str, mass_tag: str):
         path = f'/net/hydra/data2/quinten/data/{simulation}/SOAP-HBT/halo_properties_{snapshot}.hdf5'
         self.simulation = simulation
         self.snapshot = snapshot
         self.data = sw.load(path)
+        self.mass_tag = mass_tag
+        self.select_galaxies()
     
-    def select_galaxies_fixed_number(self: object, N: int):
-        """Loads in the N galaxies with the largest subhalo mass
+    def select_galaxies(self):
+        if self.mass_tag[0] == 'N':
+            self.select_galaxies_fixed_number()
+        else:
+            self.selext_galaxies_mass_threshold()
 
-        Args:
-            self (object): simulation object
-            N (int): number of galaxies to include
-        """
+    def select_galaxies_fixed_number(self: object):
+        """Loads in the N galaxies with the largest subhalo mass"""
+
+        n = int(self.mass_tag[1:]) * 1_000_000
         halo_mass_all = np.array(self.data.exclusive_sphere_50kpc.total_mass.to('Msun'))
         order = np.argsort(halo_mass_all)
-        self.mass_threshold = halo_mass_all[order][-int(N)]
-        indices = order[-int(N):]
+        self.mass_threshold = halo_mass_all[order][-n]
+        indices = order[-n:]
         self.mask = np.zeros(len(halo_mass_all), dtype=bool)
         self.mask[indices] = True
         self.hmass = halo_mass_all[self.mask]
     
-    def selext_galaxies_mass_threshold(self: object, mass_range: str):
-        """Loads in all galaxies with subhalo mass within the mass range
+    def selext_galaxies_mass_threshold(self: object):
+        """Loads in all galaxies with subhalo mass within the mass range"""
 
-        Args:
-            self (object): simulation object
-            mass_range (str): subhalo mass range in log10 Msun. Accepted formats: x_y, x-, x+
-        """
-        self.mass_tag = mass_range
-        self.mass_threshold, self.mass_limit = str_to_mass_range(mass_range)
+        self.mass_threshold, self.mass_limit = str_to_mass_range(self.mass_tag)
         halo_mass_all = np.array(self.data.exclusive_sphere_50kpc.total_mass.to('Msun'))
         self.mask = (halo_mass_all >= self.mass_threshold) & (halo_mass_all < self.mass_limit)
         self.hmass = halo_mass_all[self.mask]
@@ -152,8 +152,7 @@ class LoadSimulation:
         self.matter_overdensity_per_galaxy = (self.voxel_mass_per_galaxy)/np.mean(self.voxel_mass)-1
 
 def save_simulation(simulation_tag, snapshot, mass_tag, n_bins):
-    simulation = LoadSimulation(simulation_tag, snapshot)
-    simulation.selext_galaxies_mass_threshold(mass_tag)
+    simulation = LoadSimulation(simulation_tag, snapshot, mass_tag)
     simulation.load_all(n_bins)
     delattr(simulation, 'data')
     np.save(f'../storage/simulations/{simulation.simulation}_{simulation.snapshot}_{simulation.mass_tag}_{n_bins}', simulation)
@@ -584,8 +583,7 @@ def fit_seven_parameter_model(n_g, v):
 def save_model7(x: LoadSimulation | list[str, str, str, int]):
     if type(x) == list:
         simulation_tag, snapshot, mass_tag, n_bins = x
-        simulation = LoadSimulation(simulation_tag, snapshot)
-        simulation.selext_galaxies_mass_threshold(mass_tag)
+        simulation = LoadSimulation(simulation_tag, snapshot, mass_tag)
         simulation.load_all(n_bins)
     else:
         simulation = x
