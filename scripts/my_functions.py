@@ -573,14 +573,16 @@ def fit_skewnorm_velocity(n_g, v):
     minimum = minimize(mll, [30, .1, 3, 5, 250]).x
     return minimum
 
-def fit_seven_parameter_model(n_g, v):
+def fit_seven_parameter_model(n_g, v, p0=None):
     v = v[n_g > 1]
     n_g = n_g[n_g > 1]
     mll = lambda args, v=v, n_g=n_g: -np.sum(np.log(skewnorm.pdf(v, exponential(n_g, *args[:3]), n_g*args[3], exponential(n_g, *args[4:]))))
-    minimum = minimize(mll, [30, .1, 3, 5, 20, .1, 250]).x
+    if p0 is None:
+        p0 = [30, .1, 3, 5, 20, .1, 250]
+    minimum = minimize(mll, p0).x
     return minimum
 
-def save_model7(x: LoadSimulation | list[str, str, str, int]):
+def save_model7(x: LoadSimulation | list[str, str, str, int], p0: list=None):
     if type(x) == list:
         simulation_tag, snapshot, mass_tag, n_bins = x
         simulation = LoadSimulation(simulation_tag, snapshot, mass_tag)
@@ -588,7 +590,7 @@ def save_model7(x: LoadSimulation | list[str, str, str, int]):
     else:
         simulation = x
         mass_tag, n_bins = simulation.mass_tag, simulation.bins
-    model7 = fit_seven_parameter_model(simulation.number_density, simulation.voxel_velocity[0])
+    model7 = fit_seven_parameter_model(simulation.number_density, simulation.voxel_velocity[0], p0=p0)
     np.save(f'../storage/model7/{simulation.simulation}_{simulation.snapshot}_{simulation.mass_tag}_{n_bins}', model7)
 
 def load_model7(simulation, snapshot, mass_tag, n_bins):
