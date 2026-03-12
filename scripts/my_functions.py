@@ -556,6 +556,10 @@ def exponential(x, a, b, c):
 def skewnorm7(n_g, params, x):
     return skewnorm.pdf(x, exponential(n_g, *params[:3]), n_g*params[3], exponential(n_g, *params[4:]))
 
+def skewnorm_mean(alpha, xi, omega):
+    delta = alpha / np.sqrt(1 + alpha**2)
+    return xi + omega*delta*np.sqrt(2/np.pi)
+
 def fit_one_bin_skewnorm(v, p0=[3, 10, 250]):
     mll = lambda args, v=v: -np.sum(np.log(skewnorm.pdf(v, *args)))
     alpha, xi, omega = minimize(mll, p0).x
