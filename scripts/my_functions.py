@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from scipy.stats import binned_statistic, binned_statistic_dd, skewnorm, t
 from scipy.optimize import curve_fit, minimize
 from matplotlib.axes import Axes
+from matplotlib import pyplot as plt
+from typing import Callable
 
 class LoadSimulation:
     """This class is used to load in a given simulation. The following methods can be called:
@@ -609,6 +611,56 @@ def fit_one_bin_skew_t(v, p0=[3, 10, 250, 10]):
     mll = lambda args, v=v: -np.sum(np.log(skew_t_pdf(v, *args)))
     alpha, xi, omega, nu = minimize(mll, p0, bounds=((0, None), (None, None), (0, None), (0, None))).x
     return alpha, xi, omega, nu
+
+def fit_one_bin_skew_t_fixed_param(v, idx, values, p0):
+    def return_args(args, idx, values):
+        arg_list = []
+        counter = 0
+        for i in range(4):
+            if i in idx:
+                arg_list.append(values[np.where(np.asarray(idx) == i)[0][0]])
+            else:
+                arg_list.append(args[counter])
+                counter += 1
+        return arg_list
+    mll = lambda args, idx=idx, values=np.array(values): -np.sum(np.log(skew_t_pdf(v, *return_args(args, idx, values))))
+    remove_bounds = np.array([True]*4)
+    remove_bounds[idx] = False
+    bounds= np.array([(0, None), (None, None), (0, None), (0, None)])[remove_bounds]
+    minimum = minimize(mll, p0, bounds=bounds).x
+    return minimum
+
+def plot_model_performance(
+        sim: LoadSimulation, 
+        pdf: Callable | list[Callable], 
+        params: np.ndarray | list[np.ndarray], 
+        n_gs: list,
+        label: str | list[str] | None = None,
+        c: str | list[str] | None  = None,
+        path: str | None = None,
+    ):
+    fig, ax = plt.subplots(1, 3, figsize=[12, 4])
+    for i, (axis, n_g) in enumerate(zip(ax, n_gs)):
+        v = sim.voxel_velocity[0][sim.number_density == n_g]
+        axis.hist(v, bins=100, color='gray', density=True)
+
+        xx = np.linspace(0, np.max(v), 1000)
+        if type(pdf) == list:
+            for j, (pdf_i, label_i, c_i) in enumerate(zip(pdf, label, c)):
+                axis.plot(xx, pdf_i(xx, *params[j][i]), label=label_i, c=c_i)
+        else:
+            axis.plot(xx, pdf(xx, *params[i]), label=label, c=c)
+        axis.set(
+            title=f'$n_g$ = {n_g}',
+            xlabel='Voxel velocity [km s$^{-1}$]',
+        )
+    if label:
+        ax[0].legend()
+    fig.tight_layout()
+    if path:
+        fig.savefig(path, bbox_inches='tight')
+    plt.show()
+
 
 #----------Calculation and analysis of voxel mass----------
 def calc_voxel_mass(path_data: str, output_file: str, bins: int):
