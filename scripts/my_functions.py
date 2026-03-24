@@ -1,7 +1,7 @@
 import swiftsimio as sw
 import numpy as np
 from dataclasses import dataclass
-from scipy.stats import binned_statistic, binned_statistic_dd, skewnorm
+from scipy.stats import binned_statistic, binned_statistic_dd, skewnorm, t
 from scipy.optimize import curve_fit, minimize
 from matplotlib.axes import Axes
 
@@ -599,6 +599,16 @@ def save_model7(x: LoadSimulation | list[str, str, str, int], p0: list=None):
 
 def load_model7(simulation, snapshot, mass_tag, n_bins):
     return np.load(f'../storage/model7/{simulation}_{snapshot}_{mass_tag}_{n_bins}.npy')
+
+
+#----------Skew-t distributed voxel veloxities----------
+def skew_t_pdf(x, alpha, xi, omega, nu):
+    return 2/omega * t.pdf((x-xi)/omega, nu) * t.cdf(alpha * (x-xi)/omega * np.sqrt((nu+1) / (nu + ((x-xi)/omega)**2)), nu+1)
+
+def fit_one_bin_skew_t(v, p0=[3, 10, 250, 10]):
+    mll = lambda args, v=v: -np.sum(np.log(skew_t_pdf(v, *args)))
+    alpha, xi, omega, nu = minimize(mll, p0, bounds=((0, None), (None, None), (0, None), (0, None))).x
+    return alpha, xi, omega, nu
 
 #----------Calculation and analysis of voxel mass----------
 def calc_voxel_mass(path_data: str, output_file: str, bins: int):
