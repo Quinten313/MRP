@@ -613,6 +613,7 @@ def fit_one_bin_skew_t(v, p0=[3, 10, 250, 10]):
     return alpha, xi, omega, nu
 
 def fit_one_bin_skew_t_fixed_param(v, idx, values, p0):
+    
     def return_args(args, idx, values):
         arg_list = []
         counter = 0
@@ -623,12 +624,54 @@ def fit_one_bin_skew_t_fixed_param(v, idx, values, p0):
                 arg_list.append(args[counter])
                 counter += 1
         return arg_list
+        
     mll = lambda args, idx=idx, values=np.array(values): -np.sum(np.log(skew_t_pdf(v, *return_args(args, idx, values))))
     remove_bounds = np.array([True]*4)
     remove_bounds[idx] = False
-    bounds= np.array([(0, None), (None, None), (0, None), (0, None)])[remove_bounds]
+    bounds = np.array([(0, None), (None, None), (0, None), (0, None)])[remove_bounds]
     minimum = minimize(mll, p0, bounds=bounds).x
-    return minimum
+    params = np.empty(4)
+    counter = 0
+    for i in range(4):
+        if i in idx:
+            params[i] = values[np.where(np.asarray(idx) == i)[0][0]]
+        else:
+            params[i] = minimum[counter]
+            counter += 1
+    alpha, xi, omega, nu = params
+    return alpha, xi, omega, nu
+
+def fit_all_bins_skew_t(simulation, n_g_min, n_g_max, p0, fix_args=None, print_progress=False):
+    parameter_list = []
+    n_gs = np.arange(n_g_min, n_g_max)
+    for n_g in n_gs:
+        if print_progress:
+            print(n_g)
+        v = simulation.voxel_velocity[0][simulation.number_density == n_g]
+
+        if fix_args:
+            indices, functions = fix_args
+            for i in range(len(indices)-1):
+                if indices[i+1] <= indices[i]:
+                    raise ValueError("Argument indices should be asccending")
+            parameter_list.append(fit_one_bin_skew_t_fixed_param(v, indices, [f(n_g) for f in functions], p0=p0))
+        else:
+            parameter_list.append(fit_one_bin_skew_t(v, p0=p0))
+
+        # set p0 for the next bin to the values of the last non-nan non-inf fit
+        for fit in parameter_list[::-1]:
+            if np.isfinite(np.sum(fit)):
+                fit = list(fit)
+                if fit[0] > 100:
+                    fit[0] = 1
+                p0 = fit
+                for i in fix_args[0][::-1]:
+                    p0.pop(i)
+                break
+            
+    alpha, xi, omega, nu = np.transpose(parameter_list)
+    return alpha, xi, omega, nu, n_gs
+
 
 def plot_model_performance(
         sim: LoadSimulation, 
