@@ -3,6 +3,7 @@ import numpy as np
 from dataclasses import dataclass
 from scipy.stats import binned_statistic, binned_statistic_dd, skewnorm, t
 from scipy.optimize import curve_fit, minimize
+from scipy.special import gamma
 from matplotlib.axes import Axes
 from matplotlib import pyplot as plt
 from typing import Callable
@@ -607,6 +608,18 @@ def load_model7(simulation, snapshot, mass_tag, n_bins):
 def skew_t_pdf(x, alpha, xi, omega, nu):
     return 2/omega * t.pdf((x-xi)/omega, nu) * t.cdf(alpha * (x-xi)/omega * np.sqrt((nu+1) / (nu + ((x-xi)/omega)**2)), nu+1)
 
+def skew_t_mean(alpha, xi, omega, nu):
+    delta = alpha / np.sqrt(1 + alpha**2)
+    mean = xi + omega * delta * np.sqrt(nu / np.pi) * gamma((nu-1) / 2) / gamma(nu / 2)
+
+    # In the limit nu -> inf, the skew-t equals the skewnorm. For numerical stability, the mean for high nu must be calculated as the skewnormal mean
+    try:
+        if np.isnan(mean) and not np.isnan(nu):
+            mean = skewnorm_mean(alpha, xi, omega)
+    except ValueError:
+        mean[np.isnan(mean)] = skewnorm_mean(alpha[np.isnan(mean)], xi[np.isnan(mean)], omega[np.isnan(mean)])
+    return mean
+
 def fit_one_bin_skew_t(v, p0=[3, 10, 250, 10]):
     mll = lambda args, v=v: -np.sum(np.log(skew_t_pdf(v, *args)))
     alpha, xi, omega, nu = minimize(mll, p0, bounds=((0, None), (None, None), (0, None), (0, None))).x
@@ -653,7 +666,7 @@ def fit_all_bins_skew_t(simulation, n_g_min, n_g_max, p0, fix_args=None, print_p
             indices, functions = fix_args
             for i in range(len(indices)-1):
                 if indices[i+1] <= indices[i]:
-                    raise ValueError("Argument indices should be asccending")
+                    raise ValueError("Argument indices should be ascending")
             parameter_list.append(fit_one_bin_skew_t_fixed_param(v, indices, [f(n_g) for f in functions], p0=p0))
         else:
             parameter_list.append(fit_one_bin_skew_t(v, p0=p0))
@@ -671,7 +684,6 @@ def fit_all_bins_skew_t(simulation, n_g_min, n_g_max, p0, fix_args=None, print_p
             
     alpha, xi, omega, nu = np.transpose(parameter_list)
     return alpha, xi, omega, nu, n_gs
-
 
 def plot_model_performance(
         sim: LoadSimulation, 
