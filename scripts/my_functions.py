@@ -767,13 +767,18 @@ def plot_t9(simulation, n_gs, parameters_one_bin, t9_fit, max_alpha=100, title=N
     )
     if filename:
         fig.savefig(f'/data2/quinten/MRP/pngs/{filename}', bbox_inches='tight')
-    plt.show()
+        plt.close()
+    else:
+        plt.show()
 
 def save_model_t9(simulation, n_g_min, n_g_max, p0_skew_t, p0_t9, filename_png, filename_t9, title=None, max_alpha=50, remove_data=None):
     skew_t_per_bin, n_gs = fit_all_bins_skew_t(simulation, n_g_min, n_g_max, p0_skew_t)
     t9_minimum = fit_model_t9(simulation, p0_t9, remove_data=remove_data)
     plot_t9(simulation, n_gs, skew_t_per_bin, t9_minimum, filename=filename_png, max_alpha=max_alpha)
     np.save(f'../storage/model_t9/{filename_t9}', t9_minimum)
+
+def t9_to_skew_t_params(n_g, t9):
+    return f_alpha(n_g, *t9[:3]), f_xi(n_g, *t9[[3,4]]), f_omega(n_g, *t9[5:-1]), t9[-1]
 
 def plot_model_performance(
         sim: LoadSimulation, 
