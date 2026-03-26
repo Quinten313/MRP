@@ -717,7 +717,18 @@ def fit_model_t9(simulation, p0, remove_data=None):
         f_omega(n_g, *args[[5, 6, 7]]), 
         f_nu(args[8])
     )))
-    minimum = minimize(mll, p0).x
+    bounds = [
+        [0, 200],    # alpha a
+        [0, None],     # alpha b
+        [0, None], # alpha c
+        [0, None], # xi    a
+        [None, None], # xi    b
+        [0, None], # omega a
+        [0, None], # omega b
+        [0, None], # omega c
+        [0, 100], # nu
+    ]
+    minimum = minimize(mll, p0, bounds=bounds).x
     return minimum
 
 def plot_t9(simulation, n_gs, parameters_one_bin, t9_fit, max_alpha=100, title=None, filename=None):
