@@ -677,13 +677,103 @@ def fit_all_bins_skew_t(simulation, n_g_min, n_g_max, p0, fix_args=None, print_p
                 fit = list(fit)
                 if fit[0] > 100:
                     fit[0] = 1
+                if fit[-1] > 50:
+                    fit[-1] = 16
                 p0 = fit
-                for i in fix_args[0][::-1]:
-                    p0.pop(i)
+                if fix_args:
+                    for i in indices[::-1]:
+                        p0.pop(i)
                 break
             
-    alpha, xi, omega, nu = np.transpose(parameter_list)
-    return alpha, xi, omega, nu, n_gs
+    return np.asarray(parameter_list), n_gs
+
+f_alpha = exponential
+f_xi = lambda x, a, b: a*x + b*x**2
+f_omega = exponential
+f_nu = lambda a: a
+
+def fit_model_t9(simulation, p0, remove_data=None):
+    n_g = simulation.number_density
+    v = simulation.voxel_velocity[0]
+    v = v[n_g > 1]
+    n_g = n_g[n_g > 1]
+    if remove_data:
+        n_voxels_thresh = np.sum(n_g == remove_data)
+        v_cut, n_g_cut = [], []
+        for n in np.arange(2, np.max(n_g)+1):
+            n_voxels = np.sum(n_g == n)
+            if n_voxels > n_voxels_thresh:
+                v_cut = np.concatenate([v_cut, np.random.choice(v[n_g == n], n_voxels_thresh)])
+                n_g_cut = np.concatenate([n_g_cut, [n]*n_voxels_thresh])
+            else:
+                v_cut = np.concatenate([v_cut, v[n_g == n]])
+                n_g_cut = np.concatenate([n_g_cut, [n]*np.sum(n_g == n)])
+        v, n_g = v_cut, n_g_cut
+
+    mll = lambda args, v=v, n_g=n_g: -np.sum(np.log(skew_t_pdf(
+        v, 
+        f_alpha(n_g, *args[[0, 1, 2]]), 
+        f_xi(n_g, *args[[3, 4]]), 
+        f_omega(n_g, *args[[5, 6, 7]]), 
+        f_nu(args[8])
+    )))
+    minimum = minimize(mll, p0).x
+    return minimum
+
+def plot_t9(simulation, n_gs, parameters_one_bin, t9_fit, max_alpha=100, title=None, filename=None):
+
+    true_mean = [np.mean(simulation.voxel_velocity[0][simulation.number_density == n_g]) for n_g in n_gs]
+    alpha, xi, omega, nu = np.transpose(parameters_one_bin)
+
+    fig, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5, 1, figsize=[6, 20], sharex=True)
+
+    model_mean = skew_t_mean(alpha, xi, omega, nu)
+    mask = alpha < max_alpha
+
+    ax1.scatter(n_gs[mask], alpha[mask], s=3, c='r')
+    ax2.scatter(n_gs[mask], xi[mask], s=3, c='r')
+    ax3.scatter(n_gs[mask], omega[mask], s=3, c='r')
+    ax4.scatter(n_gs[mask], nu[mask], s=3, c='r')
+    ax5.scatter(n_gs[mask], model_mean[mask], s=3, c='r')
+    ax5.scatter(n_gs, true_mean, s=3, c='b')
+
+    ax1.plot(n_gs, f_alpha(n_gs, *t9_fit[[0, 1, 2]]), c='b')
+    ax2.plot(n_gs, f_xi(n_gs, *t9_fit[[3, 4]]), c='b')
+    ax3.plot(n_gs, f_omega(n_gs, *t9_fit[[5, 6, 7]]), c='b')
+    ax4.plot(n_gs, [f_nu(t9_fit[8])]*len(n_gs), c='b')
+    ax5.plot(n_gs, skew_t_mean(
+        f_alpha(n_gs, *t9_fit[[0, 1, 2]]),
+        f_xi(n_gs, *t9_fit[[3, 4]]),
+        f_omega(n_gs, *t9_fit[[5, 6, 7]]),
+        f_nu(t9_fit[8])
+    ), c='b')
+
+    ax1.set(
+        ylabel=r'$\alpha$',
+        title=title,
+    )
+    ax2.set(
+        ylabel=r'$\xi$',
+    )
+    ax3.set(
+        ylabel=r'$\omega$',
+    )
+    ax4.set(
+        ylabel=r'$\nu$',
+    )
+    ax5.set(
+        ylabel='Model mean',
+        xlabel='$n_g$',
+    )
+    if filename:
+        fig.savefig(f'/data2/quinten/MRP/pngs/{filename}', bbox_inches='tight')
+    plt.show()
+
+def save_model_t9(simulation, n_g_min, n_g_max, p0_skew_t, p0_t9, filename_png, filename_t9, title=None, max_alpha=50, remove_data=None):
+    skew_t_per_bin, n_gs = fit_all_bins_skew_t(simulation, n_g_min, n_g_max, p0_skew_t)
+    t9_minimum = fit_model_t9(simulation, p0_t9, remove_data=remove_data)
+    plot_t9(simulation, n_gs, skew_t_per_bin, t9_minimum, filename=filename_png, max_alpha=max_alpha)
+    np.save(f'../storage/model_t9/{filename_t9}', t9_minimum)
 
 def plot_model_performance(
         sim: LoadSimulation, 
