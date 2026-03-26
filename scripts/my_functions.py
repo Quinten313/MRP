@@ -622,7 +622,7 @@ def skew_t_mean(alpha, xi, omega, nu):
 
 def fit_one_bin_skew_t(v, p0=[3, 10, 250, 10]):
     mll = lambda args, v=v: -np.sum(np.log(skew_t_pdf(v, *args)))
-    alpha, xi, omega, nu = minimize(mll, p0, bounds=((0, None), (None, None), (0, None), (0, None))).x
+    alpha, xi, omega, nu = minimize(mll, p0, bounds=((0, 100), (None, None), (0, None), (0, 100))).x
     return alpha, xi, omega, nu
 
 def fit_one_bin_skew_t_fixed_param(v, idx, values, p0):
@@ -641,7 +641,7 @@ def fit_one_bin_skew_t_fixed_param(v, idx, values, p0):
     mll = lambda args, idx=idx, values=np.array(values): -np.sum(np.log(skew_t_pdf(v, *return_args(args, idx, values))))
     remove_bounds = np.array([True]*4)
     remove_bounds[idx] = False
-    bounds = np.array([(0, None), (None, None), (0, None), (0, None)])[remove_bounds]
+    bounds = np.array([(0, 100), (None, None), (0, None), (0, 100)])[remove_bounds]
     minimum = minimize(mll, p0, bounds=bounds).x
     params = np.empty(4)
     counter = 0
@@ -675,7 +675,7 @@ def fit_all_bins_skew_t(simulation, n_g_min, n_g_max, p0, fix_args=None, print_p
         for fit in parameter_list[::-1]:
             if np.isfinite(np.sum(fit)):
                 fit = list(fit)
-                if fit[0] > 100:
+                if fit[0] > 50:
                     fit[0] = 1
                 if fit[-1] > 50:
                     fit[-1] = 16
@@ -732,7 +732,7 @@ def fit_model_t9(simulation, p0, remove_data=None):
         f_nu(args[8])
     )))
     bounds = [
-        [0, 200],    # alpha a
+        [0, 100],    # alpha a
         [0, None],     # alpha b
         [0, None], # alpha c
         [0, None], # xi    a
