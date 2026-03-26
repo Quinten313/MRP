@@ -692,6 +692,20 @@ f_xi = lambda x, a, b: a*x + b*x**2
 f_omega = exponential
 f_nu = lambda a: a
 
+def mll_t9(simulation, t9):
+    n_g = simulation.number_density
+    v = simulation.voxel_velocity[0]
+    v = v[n_g > 1]
+    n_g = n_g[n_g > 1]
+    mll = -np.sum(np.log(skew_t_pdf(
+        v, 
+        f_alpha(n_g, *t9[[0, 1, 2]]), 
+        f_xi(n_g, *t9[[3, 4]]), 
+        f_omega(n_g, *t9[[5, 6, 7]]), 
+        f_nu(t9[8])
+    )))
+    return mll
+
 def fit_model_t9(simulation, p0, remove_data=None):
     n_g = simulation.number_density
     v = simulation.voxel_velocity[0]
@@ -776,6 +790,7 @@ def plot_t9(simulation, n_gs, parameters_one_bin, t9_fit, max_alpha=100, title=N
         ylabel='Model mean',
         xlabel='$n_g$',
     )
+    fig.subplots_adjust(hspace=.01)
     if filename:
         fig.savefig(f'/data2/quinten/MRP/pngs/{filename}', bbox_inches='tight')
         plt.close()
@@ -785,7 +800,7 @@ def plot_t9(simulation, n_gs, parameters_one_bin, t9_fit, max_alpha=100, title=N
 def save_model_t9(simulation, n_g_min, n_g_max, p0_skew_t, p0_t9, filename_png, filename_t9, title=None, max_alpha=50, remove_data=None):
     skew_t_per_bin, n_gs = fit_all_bins_skew_t(simulation, n_g_min, n_g_max, p0_skew_t)
     t9_minimum = fit_model_t9(simulation, p0_t9, remove_data=remove_data)
-    plot_t9(simulation, n_gs, skew_t_per_bin, t9_minimum, filename=filename_png, max_alpha=max_alpha)
+    plot_t9(simulation, n_gs, skew_t_per_bin, t9_minimum, filename=filename_png, max_alpha=max_alpha, title=title)
     np.save(f'../storage/model_t9/{filename_t9}', t9_minimum)
 
 def t9_to_skew_t_params(n_g, t9):
