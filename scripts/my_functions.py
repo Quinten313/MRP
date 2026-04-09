@@ -620,9 +620,45 @@ def skew_t_mean(alpha, xi, omega, nu):
         mean[np.isnan(mean)] = skewnorm_mean(alpha[np.isnan(mean)], xi[np.isnan(mean)], omega[np.isnan(mean)])
     return mean
 
+def get_bounds(tag):
+    if tag == 't9':
+        return [
+            [0, 100],     # alpha a
+            [0, None],    # alpha b
+            [0, None],    # alpha c
+            [0, None],    # xi    a
+            [None, None], # xi    b
+            [0, None],    # omega a
+            [0, None],    # omega b
+            [0, None],    # omega c
+            [0, 100],     # nu
+        ]
+    elif tag == 't10':
+        return [
+            [0, None],    # alpha a
+            [None, None], # alpha b
+            [0, None],    # alpha c
+            [0, None],    # alpha d
+            [0, None],    # xi    a
+            [None, None], # xi    b
+            [0, None],    # omega a
+            [0, None],    # omega b
+            [0, None],    # omega c
+            [0, 100],     # nu
+        ]
+    elif tag == 't':
+        return [
+            [0, 100],     # alpha
+            [None, None], # xi
+            [0, None],    # omega
+            [0, 100],     # nu
+        ]
+    else:
+        raise ValueError(f"In valid value for tag: {tag}")
+
 def fit_one_bin_skew_t(v, p0=[3, 10, 250, 10]):
     mll = lambda args, v=v: -np.sum(np.log(skew_t_pdf(v, *args)))
-    alpha, xi, omega, nu = minimize(mll, p0, bounds=((0, 100), (None, None), (0, None), (0, 100))).x
+    alpha, xi, omega, nu = minimize(mll, p0, bounds=get_bounds('t')).x
     return alpha, xi, omega, nu
 
 def fit_one_bin_skew_t_fixed_param(v, idx, values, p0):
@@ -641,7 +677,7 @@ def fit_one_bin_skew_t_fixed_param(v, idx, values, p0):
     mll = lambda args, idx=idx, values=np.array(values): -np.sum(np.log(skew_t_pdf(v, *return_args(args, idx, values))))
     remove_bounds = np.array([True]*4)
     remove_bounds[idx] = False
-    bounds = np.array([(0, 100), (None, None), (0, None), (0, 100)])[remove_bounds]
+    bounds = np.array(get_bounds('t'))[remove_bounds]
     minimum = minimize(mll, p0, bounds=bounds).x
     params = np.empty(4)
     counter = 0
@@ -706,7 +742,7 @@ def mll_t9(simulation, t9):
     )))
     return mll
 
-def fit_model_t9(simulation, p0, remove_data=None):
+def fit_model_t9(simulation, p0, remove_data=None, t10=False):
     n_g = simulation.number_density
     v = simulation.voxel_velocity[0]
     v = v[n_g > 1]
@@ -724,28 +760,34 @@ def fit_model_t9(simulation, p0, remove_data=None):
                 n_g_cut = np.concatenate([n_g_cut, [n]*np.sum(n_g == n)])
         v, n_g = v_cut, n_g_cut
 
-    mll = lambda args, v=v, n_g=n_g: -np.sum(np.log(skew_t_pdf(
-        v, 
-        f_alpha(n_g, *args[[0, 1, 2]]), 
-        f_xi(n_g, *args[[3, 4]]), 
-        f_omega(n_g, *args[[5, 6, 7]]), 
-        f_nu(args[8])
-    )))
-    bounds = [
-        [0, 100],    # alpha a
-        [0, None],     # alpha b
-        [0, None], # alpha c
-        [0, None], # xi    a
-        [None, None], # xi    b
-        [0, None], # omega a
-        [0, None], # omega b
-        [0, None], # omega c
-        [0, 100], # nu
-    ]
-    minimum = minimize(mll, p0, bounds=bounds).x
+    if t10:
+        f_alpha = lambda x, a, b, c, d: a / (x - b)**c + d
+        mll = lambda args, v=v, n_g=n_g: -np.sum(np.log(skew_t_pdf(
+            v, 
+            f_alpha(n_g, *args[[0, 1, 2, 3]]),
+            f_xi(n_g, *args[[4, 5]]),
+            f_omega(n_g, *args[[6, 7, 8]]),
+            f_nu(args[9])
+        )))
+        bounds = get_bounds('t10')
+        minimum = minimize(mll, p0, bounds=bounds).x
+    else:
+        mll = lambda args, v=v, n_g=n_g: -np.sum(np.log(skew_t_pdf(
+            v, 
+            f_alpha(n_g, *args[[0, 1, 2]]), 
+            f_xi(n_g, *args[[3, 4]]), 
+            f_omega(n_g, *args[[5, 6, 7]]), 
+            f_nu(args[8])
+        )))
+        bounds = get_bounds('t9')
+        minimum = minimize(mll, p0, bounds=bounds).x
     return minimum
 
-def plot_t9(simulation, n_gs, parameters_one_bin, t9_fit, max_alpha=100, title=None, filename=None):
+def plot_t9(simulation, n_gs, parameters_one_bin, t9_fit, max_alpha=100, title=None, filename=None, t10=False):
+    if t10:
+        f_alpha = lambda x, a, b, c, d: a / (x - b)**c + d
+    else:
+        f_alpha = exponential
 
     true_mean = [np.mean(simulation.voxel_velocity[0][simulation.number_density == n_g]) for n_g in n_gs]
     alpha, xi, omega, nu = np.transpose(parameters_one_bin)
@@ -762,16 +804,28 @@ def plot_t9(simulation, n_gs, parameters_one_bin, t9_fit, max_alpha=100, title=N
     ax5.scatter(n_gs[mask], model_mean[mask], s=3, c='r')
     ax5.scatter(n_gs, true_mean, s=3, c='b')
 
-    ax1.plot(n_gs, f_alpha(n_gs, *t9_fit[[0, 1, 2]]), c='b')
-    ax2.plot(n_gs, f_xi(n_gs, *t9_fit[[3, 4]]), c='b')
-    ax3.plot(n_gs, f_omega(n_gs, *t9_fit[[5, 6, 7]]), c='b')
-    ax4.plot(n_gs, [f_nu(t9_fit[8])]*len(n_gs), c='b')
-    ax5.plot(n_gs, skew_t_mean(
-        f_alpha(n_gs, *t9_fit[[0, 1, 2]]),
-        f_xi(n_gs, *t9_fit[[3, 4]]),
-        f_omega(n_gs, *t9_fit[[5, 6, 7]]),
-        f_nu(t9_fit[8])
-    ), c='b')
+    if t10:
+        ax1.plot(n_gs, f_alpha(n_gs, *t9_fit[[0, 1, 2, 3]]), c='b')
+        ax2.plot(n_gs, f_xi(n_gs, *t9_fit[[4, 5]]), c='b')
+        ax3.plot(n_gs, f_omega(n_gs, *t9_fit[[6, 7, 8]]), c='b')
+        ax4.plot(n_gs, [f_nu(t9_fit[9])]*len(n_gs), c='b')
+        ax5.plot(n_gs, skew_t_mean(
+            f_alpha(n_gs, *t9_fit[[0, 1, 2, 3]]),
+            f_xi(n_gs, *t9_fit[[4, 5]]),
+            f_omega(n_gs, *t9_fit[[6, 7, 8]]),
+            f_nu(t9_fit[9])
+        ), c='b')
+    else:
+        ax1.plot(n_gs, f_alpha(n_gs, *t9_fit[[0, 1, 2]]), c='b')
+        ax2.plot(n_gs, f_xi(n_gs, *t9_fit[[3, 4]]), c='b')
+        ax3.plot(n_gs, f_omega(n_gs, *t9_fit[[5, 6, 7]]), c='b')
+        ax4.plot(n_gs, [f_nu(t9_fit[8])]*len(n_gs), c='b')
+        ax5.plot(n_gs, skew_t_mean(
+            f_alpha(n_gs, *t9_fit[[0, 1, 2]]),
+            f_xi(n_gs, *t9_fit[[3, 4]]),
+            f_omega(n_gs, *t9_fit[[5, 6, 7]]),
+            f_nu(t9_fit[8])
+        ), c='b')
 
     ax1.set(
         ylabel=r'$\alpha$',
@@ -797,11 +851,14 @@ def plot_t9(simulation, n_gs, parameters_one_bin, t9_fit, max_alpha=100, title=N
     else:
         plt.show()
 
-def save_model_t9(simulation, n_g_min, n_g_max, p0_skew_t, p0_t9, filename_png, filename_t9, title=None, max_alpha=50, remove_data=None):
+def save_model_t9(simulation, n_g_min, n_g_max, p0_skew_t, p0_t9, filename_png, filename_t9, title=None, max_alpha=50, remove_data=None, t10=False):
     skew_t_per_bin, n_gs = fit_all_bins_skew_t(simulation, n_g_min, n_g_max, p0_skew_t)
-    t9_minimum = fit_model_t9(simulation, p0_t9, remove_data=remove_data)
-    plot_t9(simulation, n_gs, skew_t_per_bin, t9_minimum, filename=filename_png, max_alpha=max_alpha, title=title)
-    np.save(f'../storage/model_t9/{filename_t9}', t9_minimum)
+    t9_minimum = fit_model_t9(simulation, p0_t9, remove_data=remove_data, t10=t10)
+    plot_t9(simulation, n_gs, skew_t_per_bin, t9_minimum, filename=filename_png, max_alpha=max_alpha, title=title, t10=t10)
+    if t10:
+        np.save(f'../storage/model_t10/{filename_t9}', t9_minimum)
+    else:
+        np.save(f'../storage/model_t9/{filename_t9}', t9_minimum)
 
 def t9_to_skew_t_params(n_g, t9):
     return f_alpha(n_g, *t9[:3]), f_xi(n_g, *t9[[3,4]]), f_omega(n_g, *t9[5:-1]), t9[-1]
