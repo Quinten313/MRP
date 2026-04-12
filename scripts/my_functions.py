@@ -26,6 +26,7 @@ class LoadSimulation:
         self.simulation = simulation
         self.snapshot = snapshot
         self.data = sw.load(path)
+        self.H = self.data.metadata.cosmology_raw['H [internal units]']
         self.mass_tag = mass_tag
         self.select_galaxies()
     
@@ -130,12 +131,19 @@ class LoadSimulation:
         """
         self.bins=bins
         positions = np.linspace(0, self.boxsize, self.bins+1)
-        self.number_density, edges = np.histogramdd(self.halo_centers, bins=[positions, positions, positions])
-        self.galaxy_overdensity = self.number_density / np.mean(self.number_density) - 1
+        
+        self.number_density, _ = np.histogramdd(self.halo_centers, bins=[positions, positions, positions])
+        self.mean_galaxy_number_density = np.mean(self.number_density)
+        self.delta_g = self.number_density / self.mean_galaxy_number_density - 1
+
+        velocity_x = (self.halo_centers[:, 0] * self.H + self.vp[:, 0]) % (self.boxsize * self.H)
+        velocity_bins = positions * self.H
+        self.number_density_z = np.histogramdd(np.transpose([velocity_x, *self.halo_centers[:, 1:].T]), [velocity_bins, positions, positions])[0]
+        self.delta_g_z = self.number_density_z / self.mean_galaxy_number_density - 1
+
         self.voxel_per_galaxy = np.digitize(self.halo_centers, positions)-1    # Minus 1: np.digitize starts numbering bins at 1
         self.number_density_per_galaxy = self.number_density[*self.voxel_per_galaxy.T]
-        self.galaxy_overdensity_per_galaxy = self.number_density_per_galaxy / np.mean(self.number_density) - 1
-        self.mean_galaxy_number_density = np.mean(self.number_density)
+        self.delta_g_per_galaxy = self.number_density_per_galaxy / self.mean_galaxy_number_density - 1
 
     def calculate_masses(self: object, path: str):
         """Adds voxel mass and matter overdensity in the form of a three dimensional matrix of size bins x bins x bins.
