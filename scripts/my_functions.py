@@ -26,7 +26,8 @@ class LoadSimulation:
         self.simulation = simulation
         self.snapshot = snapshot
         self.data = sw.load(path)
-        self.H = self.data.metadata.cosmology_raw['H [internal units]']
+        self.cosmology = self.data.metadata.cosmology.to_format('mapping')
+        self.cosmology_raw = self.data.metadata.cosmology_raw
         self.mass_tag = mass_tag
         self.select_galaxies()
     
@@ -131,13 +132,14 @@ class LoadSimulation:
         """
         self.bins=bins
         positions = np.linspace(0, self.boxsize, self.bins+1)
+        H = self.cosmology_raw['H [internal units]']
         
         self.number_density, _ = np.histogramdd(self.halo_centers, bins=[positions, positions, positions])
         self.mean_galaxy_number_density = np.mean(self.number_density)
         self.delta_g = self.number_density / self.mean_galaxy_number_density - 1
 
-        velocity_x = (self.halo_centers[:, 0] * self.H + self.vp[:, 0]) % (self.boxsize * self.H)
-        velocity_bins = positions * self.H
+        velocity_x = (self.halo_centers[:, 0] * H + self.vp[:, 0]) % (self.boxsize * H)
+        velocity_bins = positions * H
         self.number_density_z = np.histogramdd(np.transpose([velocity_x, *self.halo_centers[:, 1:].T]), [velocity_bins, positions, positions])[0]
         self.delta_g_z = self.number_density_z / self.mean_galaxy_number_density - 1
 
@@ -170,6 +172,7 @@ def save_simulation(simulation_tag, snapshot, mass_tag, n_bins):
 
 def load_simulation(simulation_tag, snapshot, mass_tag, n_bins):
     return np.load(f'../storage/simulations/{simulation_tag}_{snapshot}_{mass_tag}_{n_bins}.npy', allow_pickle=True).item()
+
 
 #----------General utility----------
 def str_to_mass_range(mass_range):
@@ -698,14 +701,16 @@ def fit_one_bin_skew_t_fixed_param(v, idx, values, p0):
     alpha, xi, omega, nu = params
     return alpha, xi, omega, nu
 
-def fit_all_bins_skew_t(simulation, n_g_min, n_g_max, p0, fix_args=None, print_progress=False):
+def fit_all_bins_skew_t(simulation, n_g_min, n_g_max, p0, custom_y=None, fix_args=None, print_progress=False):
     parameter_list = []
     n_gs = np.arange(n_g_min, n_g_max)
     for n_g in n_gs:
         if print_progress:
             print(n_g)
-        v = simulation.voxel_velocity[0][simulation.number_density == n_g]
-
+        if custom_y is None:
+            v = simulation.voxel_velocity[0][simulation.number_density == n_g]
+        else:
+            v = custom_y[simulation.number_density == n_g]
         if fix_args:
             indices, functions = fix_args
             for i in range(len(indices)-1):
@@ -731,10 +736,17 @@ def fit_all_bins_skew_t(simulation, n_g_min, n_g_max, p0, fix_args=None, print_p
             
     return np.asarray(parameter_list), n_gs
 
-f_alpha = exponential
-f_xi = lambda x, a, b: a*x + b*x**2
-f_omega = exponential
-f_nu = lambda a: a
+def f_alpha(x, a, b, c):
+    return exponential(x, a, b, c)
+
+def f_xi(x, a, b):
+    return a*x + b*x**2
+
+def f_omega(x, a, b, c):
+    return exponential(x, a, b, c)
+
+def f_nu(x, a):
+    return a
 
 def mll_t9(simulation, t9):
     n_g = simulation.number_density
@@ -746,7 +758,7 @@ def mll_t9(simulation, t9):
         f_alpha(n_g, *t9[[0, 1, 2]]), 
         f_xi(n_g, *t9[[3, 4]]), 
         f_omega(n_g, *t9[[5, 6, 7]]), 
-        f_nu(t9[8])
+        f_nu(n_g, t9[8])
     )))
     return mll
 
@@ -775,7 +787,7 @@ def fit_model_t9(simulation, p0, remove_data=None, t10=False):
             f_alpha(n_g, *args[[0, 1, 2, 3]]),
             f_xi(n_g, *args[[4, 5]]),
             f_omega(n_g, *args[[6, 7, 8]]),
-            f_nu(args[9])
+            f_nu(n_g, args[9])
         )))
         bounds = get_bounds('t10')
         minimum = minimize(mll, p0, bounds=bounds).x
@@ -785,7 +797,7 @@ def fit_model_t9(simulation, p0, remove_data=None, t10=False):
             f_alpha(n_g, *args[[0, 1, 2]]), 
             f_xi(n_g, *args[[3, 4]]), 
             f_omega(n_g, *args[[5, 6, 7]]), 
-            f_nu(args[8])
+            f_nu(n_g, args[8])
         )))
         bounds = get_bounds('t9')
         minimum = minimize(mll, p0, bounds=bounds).x
@@ -821,18 +833,18 @@ def plot_t9(simulation, n_gs, parameters_one_bin, t9_fit, max_alpha=100, title=N
             f_alpha(n_gs, *t9_fit[[0, 1, 2, 3]]),
             f_xi(n_gs, *t9_fit[[4, 5]]),
             f_omega(n_gs, *t9_fit[[6, 7, 8]]),
-            f_nu(t9_fit[9])
+            f_nu(n_gs, t9_fit[9])
         ), c='b')
     else:
         ax1.plot(n_gs, f_alpha(n_gs, *t9_fit[[0, 1, 2]]), c='b')
         ax2.plot(n_gs, f_xi(n_gs, *t9_fit[[3, 4]]), c='b')
         ax3.plot(n_gs, f_omega(n_gs, *t9_fit[[5, 6, 7]]), c='b')
-        ax4.plot(n_gs, [f_nu(t9_fit[8])]*len(n_gs), c='b')
+        ax4.plot(n_gs, [f_nu(n_gs, t9_fit[8])]*len(n_gs), c='b')
         ax5.plot(n_gs, skew_t_mean(
             f_alpha(n_gs, *t9_fit[[0, 1, 2]]),
             f_xi(n_gs, *t9_fit[[3, 4]]),
             f_omega(n_gs, *t9_fit[[5, 6, 7]]),
-            f_nu(t9_fit[8])
+            f_nu(n_gs, t9_fit[8])
         ), c='b')
 
     ax1.set(
