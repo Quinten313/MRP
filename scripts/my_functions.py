@@ -792,6 +792,7 @@ def fit_model_t9(simulation, p0, remove_data=None, t10=False):
         bounds = get_bounds('t10')
         minimum = minimize(mll, p0, bounds=bounds).x
     else:
+        f_alpha = exponential
         mll = lambda args, v=v, n_g=n_g: -np.sum(np.log(skew_t_pdf(
             v, 
             f_alpha(n_g, *args[[0, 1, 2]]), 
@@ -808,7 +809,6 @@ def plot_t9(simulation, n_gs, parameters_one_bin, t9_fit, max_alpha=100, title=N
         f_alpha = lambda x, a, b, c, d: a / (x - b)**c + d
     else:
         f_alpha = exponential
-
     true_mean = [np.mean(simulation.voxel_velocity[0][simulation.number_density == n_g]) for n_g in n_gs]
     alpha, xi, omega, nu = np.transpose(parameters_one_bin)
 
@@ -871,14 +871,30 @@ def plot_t9(simulation, n_gs, parameters_one_bin, t9_fit, max_alpha=100, title=N
     else:
         plt.show()
 
-def save_model_t9(simulation, n_g_min, n_g_max, p0_skew_t, p0_t9, filename_png, filename_t9, title=None, max_alpha=50, remove_data=None, t10=False):
+def save_model_and_png_t9(simulation, n_g_min, n_g_max, p0_skew_t, p0_t9, filename_png, title=None, max_alpha=50, remove_data=None, t10=False):
     skew_t_per_bin, n_gs = fit_all_bins_skew_t(simulation, n_g_min, n_g_max, p0_skew_t)
     t9_minimum = fit_model_t9(simulation, p0_t9, remove_data=remove_data, t10=t10)
     plot_t9(simulation, n_gs, skew_t_per_bin, t9_minimum, filename=filename_png, max_alpha=max_alpha, title=title, t10=t10)
+    if remove_data is None:
+        remove_data = 0
+    filename = f'{simulation.simulation}_{simulation.snapshot}_{simulation.mass_tag}_{simulation.bins}_{remove_data}'
     if t10:
-        np.save(f'../storage/model_t10/{filename_t9}', t9_minimum)
+        np.save(f'../storage/model_t10/{filename}', t9_minimum)
     else:
-        np.save(f'../storage/model_t9/{filename_t9}', t9_minimum)
+        np.save(f'../storage/model_t9/{filename}', t9_minimum)
+
+def save_model_t9(simulation, p0_t9, remove_data=None, t10=False):
+    t9_minimum = fit_model_t9(simulation, p0_t9, remove_data=remove_data, t10=t10)
+    if remove_data is None:
+        remove_data = 0
+    filename = f'{simulation.simulation}_{simulation.snapshot}_{simulation.mass_tag}_{simulation.bins}_{remove_data}'
+    if t10:
+        np.save(f'../storage/model_t10/{filename}', t9_minimum)
+    else:
+        np.save(f'../storage/model_t9/{filename}', t9_minimum)
+
+def load_model_t9(simulation_tag, snapshot, mass_tag, n_bins, remove_data):
+    return np.load(f'../storage/model_t9/{simulation_tag}_{snapshot}_{mass_tag}_{n_bins}_{remove_data}.npy')
 
 def t9_to_skew_t_params(n_g, t9):
     return f_alpha(n_g, *t9[:3]), f_xi(n_g, *t9[[3,4]]), f_omega(n_g, *t9[5:-1]), t9[-1]
