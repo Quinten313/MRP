@@ -932,14 +932,17 @@ def plot_model_performance(
 
 
 #----------Velocity reconstruction----------
-def reconstruct_velocities(simulation, velocity_space=False):
+def reconstruct_velocities(simulation, velocity_space=False, use_fiducial_cosmology=False):
     # Solves the linearized continuity equation by going to fourier space
 
     if velocity_space:
         delta_g = simulation.delta_g_z
     else:
         delta_g = simulation.delta_g
-    f, aH = simulation.cosmology['Om0']**.55, simulation.cosmology_raw['H [internal units]']
+    if use_fiducial_cosmology:
+        f, aH = 0.304611**.55, 68.1
+    else:
+        f, aH = simulation.cosmology['Om0']**.55, simulation.cosmology_raw['H [internal units]']
 
     k_i = 2 * np.pi * np.fft.fftfreq(simulation.bins, simulation.boxsize / simulation.bins)
     kx, ky, kz = np.meshgrid(k_i, k_i, k_i)
@@ -952,29 +955,29 @@ def reconstruct_velocities(simulation, velocity_space=False):
     reconstructed_cube = np.real(np.fft.ifftn(v_k))
     return reconstructed_cube
 
-def hybrid_model(v_lin, skew_t9, n_g):
+def hybrid_model(v_lin, skew_t9, n_g, density_ratio=1):
     v_hybrid = v_lin.copy()
     for n in range(int(np.max(n_g))+1):
         if np.sum(n_g == n) > 0:
-            skew_t_params = t9_to_skew_t_params(n, skew_t9)
+            skew_t_params = t9_to_skew_t_params(n/density_ratio, skew_t9)
             v_hybrid[n_g == n] += skew_t_mean(*skew_t_params) - np.mean(v_lin[n_g == n])
     return v_hybrid
 
-def get_all_velocities(simulation, model_t9):
+def get_all_velocities(simulation, model_t9, density_ratio=1):
     # Collects four velocities: linearly reconstructed, skew-t9, hybrid and true voxel velocities, along with number density
 
-    v_reconstr_cube = reconstruct_velocities(simulation)
+    v_reconstr_cube = reconstruct_velocities(simulation, use_fiducial_cosmology=True)
     
     mask = ~np.isnan(simulation.voxel_velocity[0])
     v_lin = np.abs(v_reconstr_cube[mask])
     v_true = simulation.voxel_velocity[1][mask]
     n_g = simulation.number_density[mask]
 
-    skew_t_parms = t9_to_skew_t_params(np.arange(np.max(simulation.number_density)+1), model_t9)
+    skew_t_parms = t9_to_skew_t_params(np.arange(np.max(simulation.number_density)+1)/density_ratio, model_t9)
     skew_t_velocities = skew_t_mean(*skew_t_parms)
     v_t9 = skew_t_velocities[simulation.number_density[mask].astype(np.int64)]
 
-    v_hybrid = hybrid_model(v_lin, model_t9, n_g)
+    v_hybrid = hybrid_model(v_lin, model_t9, n_g, density_ratio)
 
     return v_lin, v_t9, v_hybrid, v_true, n_g
 
