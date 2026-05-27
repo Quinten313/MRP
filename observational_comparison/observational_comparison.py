@@ -128,6 +128,22 @@ def save_simulation(simulation_tag, snapshot, mass_tag, n_bins):
 def load_simulation(simulation_tag, snapshot, mass_tag, n_bins):
     return np.load(f'../storage/simulations_obs/{simulation_tag}_{snapshot}_{mass_tag}_{n_bins}.npy', allow_pickle=True).item()
 
+def reconstruct_velocities(simulation, r_smooth):
+    f, aH = 0.304611**.55, 68.1
+    k_i = 2 * np.pi * np.fft.fftfreq(simulation.bins, simulation.boxsize / simulation.bins)
+    kx = k_i[None, :, None]
+    ky = k_i[:, None, None]
+    kz = k_i[None, None, :]
+    k2 = kx**2 + ky**2 + kz**2
+
+    delta_g_k = np.fft.fftn(simulation.delta_g_z)
+    W = np.exp(-.5 * k2 * r_smooth**2)
+    v_k = f * aH * delta_g_k * 1j * ky / k2 * W
+    v_k[k2 == 0] = 0
+
+    reconstructed_cube = np.real(np.fft.ifftn(v_k))
+    return reconstructed_cube
+
 def trilinear_interpolation(voxel_values, coords, n_voxels, voxel_size):
     normalized_positions = ((coords - 0.5 * voxel_size) / voxel_size) % n_voxels
     voxel_idx = np.astype(normalized_positions, int)
