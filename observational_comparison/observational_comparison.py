@@ -127,3 +127,27 @@ def save_simulation(simulation_tag, snapshot, mass_tag, n_bins):
 
 def load_simulation(simulation_tag, snapshot, mass_tag, n_bins):
     return np.load(f'../storage/simulations_obs/{simulation_tag}_{snapshot}_{mass_tag}_{n_bins}.npy', allow_pickle=True).item()
+
+def trilinear_interpolation(voxel_values, coords, n_voxels, voxel_size):
+    normalized_positions = ((coords - 0.5 * voxel_size) / voxel_size) % n_voxels
+    voxel_idx = np.astype(normalized_positions, int)
+    relative_position = normalized_positions - voxel_idx
+
+    x0 = voxel_idx[:, 0]
+    y0 = voxel_idx[:, 1]
+    z0 = voxel_idx[:, 2]
+
+    x1 = (x0 + 1) % n_voxels
+    y1 = (y0 + 1) % n_voxels
+    z1 = (z0 + 1) % n_voxels
+
+    x = relative_position[:, 0]
+    y = relative_position[:, 1]
+    z = relative_position[:, 2]
+
+    interpolated_values = (1-z) * ((1-y) * ((1-x) * voxel_values[x0, y0, z0] + x * voxel_values[x1, y0, z0])\
+                        + y * ((1-x) * voxel_values[x0, y1, z0] + x * voxel_values[x1, y1, z0]))\
+                        + z * ((1-y) * ((1-x) * voxel_values[x0, y0, z1] + x * voxel_values[x1, y0, z1])\
+                        + y * ((1-x) * voxel_values[x0, y1, z1] + x * voxel_values[x1, y1, z1]))
+
+    return interpolated_values
