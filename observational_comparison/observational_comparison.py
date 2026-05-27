@@ -2,6 +2,7 @@ import my_functions as mf
 from my_functions import LoadSimulation
 import numpy as np
 from scipy.stats import binned_statistic_dd
+import os
 
 class ObservationalComparison(LoadSimulation):
     """Adjusted LoadSimulation object, designed to more closely follow observers in the literature.
@@ -125,8 +126,21 @@ def save_simulation(simulation_tag, snapshot, mass_tag, n_bins):
     delattr(simulation, 'data')
     np.save(f'../storage/simulations_obs/{simulation.simulation}_{simulation.snapshot}_{simulation.mass_tag}_{n_bins}', simulation)
 
-def load_simulation(simulation_tag, snapshot, mass_tag, n_bins):
-    return np.load(f'../storage/simulations_obs/{simulation_tag}_{snapshot}_{mass_tag}_{n_bins}.npy', allow_pickle=True).item()
+def load_simulation(simulation_tag, snapshot, mass_tag, n_bins, allow_save=False):
+    path = f'../storage/simulations_obs/{simulation_tag}_{snapshot}_{mass_tag}_{n_bins}.npy'
+    
+    if os.path.exists(path):
+        print('Loading simulation...')
+        return np.load(path, allow_pickle=True).item()
+    
+    elif allow_save:
+        print('Saving simulation...')
+        save_simulation(simulation_tag, snapshot, mass_tag, n_bins)
+        print('Loading simulation...')
+        return np.load(path, allow_pickle=True).item()
+    
+    else:
+        print('File not found')
 
 def reconstruct_velocities(simulation, r_smooth):
     f, aH = 0.304611**.55, 68.1
