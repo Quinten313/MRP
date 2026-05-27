@@ -57,6 +57,9 @@ class ObservationalComparison(LoadSimulation):
         self.number_density_z = np.histogramdd(np.transpose([velocity_x, *self.halo_centers[:, 1:].T]), [velocity_bins, positions, positions])[0]
         self.delta_g_z = self.number_density_z / self.mean_galaxy_number_density - 1
 
+        self.voxel_per_galaxy = np.digitize(self.halo_centers_z, np.linspace(0, self.boxsize, self.bins+1))-1
+        self.voxel_per_galaxy_z = np.digitize(self.halo_centers_z, np.linspace(0, self.boxsize, self.bins+1))-1
+
     def velocities(self: object):
         """Calculates the voxel velocity based on velocities of central galaxies
 
@@ -69,11 +72,11 @@ class ObservationalComparison(LoadSimulation):
         hostid_central = hostid[self.is_central]
         velocity_central = self.vp_true[self.is_central]
 
-        velocity_adjusted_mapping = np.zeros(np.max(hostid_central)+1)
-        velocity_adjusted_mapping[hostid_central] = velocity_central
+        velocity_adjusted_mapping = np.zeros(np.max(hostid_central)+2)  # +1 such that the maximum value fits: if max is 100, we need np.zeros(101)
+        velocity_adjusted_mapping[hostid_central] = velocity_central    # +2 such that haloless centrals (hostid == -1) all get mapped to an unused slot
 
-        velocity_of_host = velocity_adjusted_mapping[hostid]
-        self.vp = velocity_of_host
+        self.vp = self.vp_true.copy()
+        self.vp[~self.is_central] = velocity_adjusted_mapping[hostid[~self.is_central]]
 
         positions = np.linspace(0, self.boxsize, self.bins+1)
         voxel_count = np.histogramdd(np.array(self.halo_centers), bins=[positions]*3)[0]
@@ -117,7 +120,7 @@ class ObservationalComparison(LoadSimulation):
         return delta_x_smoothed
 
 def save_simulation(simulation_tag, snapshot, mass_tag, n_bins):
-    simulation = LoadSimulation(simulation_tag, snapshot, mass_tag)
+    simulation = ObservationalComparison(simulation_tag, snapshot, mass_tag)
     simulation.load_all(n_bins)
     delattr(simulation, 'data')
     np.save(f'../storage/simulations_obs/{simulation.simulation}_{simulation.snapshot}_{simulation.mass_tag}_{n_bins}', simulation)
