@@ -158,6 +158,18 @@ def reconstruct_velocities(simulation, r_smooth):
     reconstructed_cube = np.real(np.fft.ifftn(v_k))
     return reconstructed_cube
 
+def get_galaxy_velocities(simulation, r_smooth, interpolation=True):
+    reconstructed_cube = reconstruct_velocities(simulation, r_smooth)
+    
+    if interpolation:
+        v_rec_galaxy = trilinear_interpolation(reconstructed_cube, simulation.halo_centers_z, simulation.bins, simulation.boxsize/simulation.bins)
+    else:
+        v_rec_galaxy = reconstructed_cube[*simulation.voxel_per_galaxy_z.T]
+    
+    v_true_galaxy = simulation.vp
+
+    return v_rec_galaxy, v_true_galaxy
+
 def trilinear_interpolation(voxel_values, coords, n_voxels, voxel_size):
     normalized_positions = ((coords - 0.5 * voxel_size) / voxel_size) % n_voxels
     voxel_idx = np.astype(normalized_positions, int)
