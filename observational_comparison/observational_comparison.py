@@ -193,3 +193,8 @@ def trilinear_interpolation(voxel_values, coords, n_voxels, voxel_size):
                         + y * ((1-x) * voxel_values[x0, y1, z1] + x * voxel_values[x1, y1, z1]))
 
     return interpolated_values
+
+def calc_correlation(array1, array2):
+    covariance_matrix = np.cov(array1, array2)
+    correlation = covariance_matrix[0, 1] / np.prod(np.diagonal(covariance_matrix))**.5
+    return correlation
