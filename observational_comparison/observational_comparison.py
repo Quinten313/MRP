@@ -9,9 +9,6 @@ class ObservationalComparison(LoadSimulation):
     Differences:
     - All galaxies in a halo have the same velocity
     - Gaussian smoothing
-
-    Args:
-        LoadSimulation (_type_): _description_
     """
 
     def load_all(self: object, bins: int):
@@ -142,7 +139,13 @@ def load_simulation(simulation_tag, snapshot, mass_tag, n_bins, allow_save=False
     else:
         print('File not found')
 
-def reconstruct_velocities(simulation, r_smooth):
+def reconstruct_velocities(simulation, r_smooth, redshift_space=True):
+    
+    if redshift_space:
+        delta_g = simulation.delta_g_z
+    else:
+        delta_g = simulation.delta_g
+
     f, aH = 0.304611**.55, 68.1
     k_i = 2 * np.pi * np.fft.fftfreq(simulation.bins, simulation.boxsize / simulation.bins)
     kx = k_i[None, :, None]
@@ -150,21 +153,28 @@ def reconstruct_velocities(simulation, r_smooth):
     kz = k_i[None, None, :]
     k2 = kx**2 + ky**2 + kz**2
 
-    delta_g_k = np.fft.fftn(simulation.delta_g_z)
+    delta_k = np.fft.fftn(delta_g)
     W = np.exp(-.5 * k2 * r_smooth**2)
-    v_k = f * aH * delta_g_k * 1j * ky / k2 * W
+    v_k = f * aH * delta_k * 1j * ky / k2 * W
     v_k[k2 == 0] = 0
 
     reconstructed_cube = np.real(np.fft.ifftn(v_k))
     return reconstructed_cube
 
-def get_galaxy_velocities(simulation, r_smooth, interpolation=True):
-    reconstructed_cube = reconstruct_velocities(simulation, r_smooth)
+def get_galaxy_velocities(simulation, r_smooth, redshift_space=True, interpolation=True):
+    reconstructed_cube = reconstruct_velocities(simulation, r_smooth, redshift_space)
+
+    if redshift_space:
+        halo_centers = simulation.halo_centers_z
+        voxel_per_galaxy = simulation.voxel_per_galaxy_z
+    else:
+        halo_centers = simulation.halo_centers
+        voxel_per_galaxy = simulation.voxel_per_galaxy
     
     if interpolation:
-        v_rec_galaxy = trilinear_interpolation(reconstructed_cube, simulation.halo_centers_z, simulation.bins, simulation.boxsize/simulation.bins)
+        v_rec_galaxy = trilinear_interpolation(reconstructed_cube, halo_centers, simulation.bins, simulation.boxsize/simulation.bins)
     else:
-        v_rec_galaxy = reconstructed_cube[*simulation.voxel_per_galaxy_z.T]
+        v_rec_galaxy = reconstructed_cube[*voxel_per_galaxy.T]
     
     v_true_galaxy = simulation.vp
 
