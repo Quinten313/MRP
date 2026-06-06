@@ -28,6 +28,7 @@ class LoadSimulation:
         self.data = sw.load(path)
         self.cosmology = self.data.metadata.cosmology.to_format('mapping')
         self.cosmology_raw = self.data.metadata.cosmology_raw
+        self.boxsize = self.data.metadata.boxsize[0].value
         self.mass_tag = mass_tag
         self.select_galaxies()
     
@@ -75,7 +76,6 @@ class LoadSimulation:
         Args:
             self (object): simulation object
         """
-        self.boxsize = self.data.metadata.boxsize[0].value
         self.is_central = self.data.input_halos.is_central[self.mask] == 1
         self.halo_centers = np.array(self.data.input_halos.halo_centre.to_physical()[self.mask])
         self.vp = np.array(self.data.exclusive_sphere_50kpc.centre_of_mass_velocity.to('km/s').to_physical()[self.mask])
@@ -292,6 +292,24 @@ def five_point_stencil(y: np.ndarray, boxsize: float, dimension: int, order: int
     )
     return dfdx
 
+def mean_with_bootstrapping_errors(x, y, bin_edges, N=100):
+    
+    mean, _, binnumber = binned_statistic(x=x, values=y, bins=bin_edges)
+
+    bootstrapping_error = []
+    for i in range(1, len(bin_edges)):
+        y_in_bin = y[binnumber == i]
+        if len(y_in_bin) < 2:
+            bootstrapping_error.append(np.nan)
+            continue
+        resamples = np.random.randint(0, len(y_in_bin), [N, len(y_in_bin)])
+        resampled_means = [np.mean(y_in_bin[resample]) for resample in resamples]
+        bootstrapping_error.append(np.std(resampled_means))
+
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+
+    return mean, bootstrapping_error, bin_centers
+ 
 
 #----------Analysis using mean absolute velocities of individual galaxies----------
 def velocity_binned_galaxies(number_density_per_galaxy, v) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -966,7 +984,7 @@ def hybrid_model(v_lin, skew_t9, n_g, density_ratio=1):
 def get_all_velocities(simulation, model_t9, density_ratio=1):
     # Collects four velocities: linearly reconstructed, skew-t9, hybrid and true voxel velocities, along with number density
 
-    v_reconstr_cube = reconstruct_velocities(simulation, use_fiducial_cosmology=True)
+    v_reconstr_cube = reconstruct_velocities(simulation, use_fiducial_cosmology=False)
     
     mask = ~np.isnan(simulation.voxel_velocity[0])
     v_lin = np.abs(v_reconstr_cube[mask])
