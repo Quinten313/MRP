@@ -208,3 +208,10 @@ def calc_correlation(array1, array2):
     covariance_matrix = np.cov(array1, array2)
     correlation = covariance_matrix[0, 1] / np.prod(np.diagonal(covariance_matrix))**.5
     return correlation
+
+def calc_correlation_per_density(array1, array2, n_g):
+    n_g_max = int(np.max(n_g))
+    correlation = np.zeros(n_g_max)
+    for n in range(1, n_g_max+1):
+        correlation[n-1] = calc_correlation(array1[n_g == n], array2[n_g == n])
+    return np.arange(1, n_g_max+1), correlation
