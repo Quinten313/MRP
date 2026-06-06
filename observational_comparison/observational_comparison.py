@@ -1,15 +1,60 @@
 import my_functions as mf
-from my_functions import LoadSimulation
+import swiftsimio
 import numpy as np
 from scipy.stats import binned_statistic_dd
 import os
 
-class ObservationalComparison(LoadSimulation):
+class ObservationalComparison():
     """Adjusted LoadSimulation object, designed to more closely follow observers in the literature.
     Differences:
     - All galaxies in a halo have the same velocity
     - Gaussian smoothing
     """
+
+    def __init__(self: object, simulation: str, snapshot: str, mass_tag: str):
+        path = f'/net/hydra/data2/quinten/data/{simulation}/SOAP-HBT/halo_properties_{snapshot}.hdf5'
+        self.simulation = simulation
+        self.snapshot = snapshot
+        self.data = swiftsimio.load(path)
+        self.cosmology = self.data.metadata.cosmology.to_format('mapping')
+        self.cosmology_raw = self.data.metadata.cosmology_raw
+        self.boxsize = self.data.metadata.boxsize[0].value
+        self.mass_tag = mass_tag
+        self.select_galaxies()
+
+    def select_galaxies(self: object):
+        """Loads in all subhalos within the mass range"""
+
+        if hasattr(self.data.exclusive_sphere_50kpc, 'stellar_mass'):
+            print('Subhalo mass: stellar')
+            halo_mass_all = np.array(self.data.exclusive_sphere_50kpc.stellar_mass.to('Msun'))
+        else:
+            print('Subhalo mass: total')
+            halo_mass_all = np.array(self.data.exclusive_sphere_50kpc.total_mass.to('Msun'))
+
+        if self.mass_tag[:3] == 'sub':
+            mass_tag, mass_tag_host = self.mass_tag[3:].split('host')
+            
+            halo_mass_fof = self.data.input_halos_fof.masses.to('Msun')
+            
+            mass_threshold_host, mass_limit_host = mf.str_to_mass_range(mass_tag_host)
+            mask_fof = (halo_mass_fof >= mass_threshold_host) & (halo_mass_fof < mass_limit_host)
+        else:
+            mass_tag = self.mass_tag
+
+        self.mass_threshold, self.mass_limit = mf.str_to_mass_range(mass_tag)
+        self.mask = (halo_mass_all >= self.mass_threshold) & (halo_mass_all < self.mass_limit)
+        if self.mass_threshold == 1:
+            self.mask = self.mask | (halo_mass_all == 0)
+
+        if self.mass_tag[:3] == 'sub':
+            if mass_threshold_host > 1:
+                self.mask = self.mask & mask_fof
+            self.hmass_fof = halo_mass_fof[self.mask]
+            print(f'Host halo mass range: {np.log10(mass_threshold_host)} - {np.log10(mass_limit_host)}')
+
+        self.hmass = halo_mass_all[self.mask]
+        print(f'Subhalo mass range: {np.log10(self.mass_threshold)} - {np.log10(self.mass_limit)}\nGalaxies: {np.sum(self.mask)}')
 
     def load_all(self: object, bins: int):
         """Calls load_variables, velocities and bin_galaxies
