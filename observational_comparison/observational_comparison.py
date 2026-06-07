@@ -33,12 +33,11 @@ class ObservationalComparison():
             halo_mass_all = np.array(self.data.exclusive_sphere_50kpc.total_mass.to('Msun'))
 
         if self.mass_tag[:3] == 'sub':
+            self.load_host_halo_mass()
             mass_tag, mass_tag_host = self.mass_tag[3:].split('host')
-            
-            halo_mass_fof = self.data.input_halos_fof.masses.to('Msun')
-            
+                        
             mass_threshold_host, mass_limit_host = mf.str_to_mass_range(mass_tag_host)
-            mask_fof = (halo_mass_fof >= mass_threshold_host) & (halo_mass_fof < mass_limit_host)
+            mask_fof = (self.halo_mass_200c >= mass_threshold_host) & (self.halo_mass_200c < mass_limit_host)
         else:
             mass_tag = self.mass_tag
 
@@ -50,11 +49,20 @@ class ObservationalComparison():
         if self.mass_tag[:3] == 'sub':
             if mass_threshold_host > 1:
                 self.mask = self.mask & mask_fof
-            self.hmass_fof = halo_mass_fof[self.mask]
+            self.hmass_fof = self.halo_mass_200c[self.mask]
             print(f'Host halo mass range: {np.log10(mass_threshold_host)} - {np.log10(mass_limit_host)}')
 
         self.hmass = halo_mass_all[self.mask]
         print(f'Subhalo mass range: {np.log10(self.mass_threshold)} - {np.log10(self.mass_limit)}\nGalaxies: {np.sum(self.mask)}')
+
+    def load_host_halo_mass(self):
+        host_halo_mass_raw = self.data.spherical_overdensity_200_crit.total_mass.to('Msun')
+        hostid = np.array(self.data.input_halos_hbtplus.host_fofid)
+        is_central = self.data.input_halos.is_central
+
+        host_halo_mass_adjusted_mapping = np.zeros(np.max(hostid+2))
+        host_halo_mass_adjusted_mapping[hostid[is_central == 1]] = host_halo_mass_raw[is_central == 1]
+        self.halo_mass_200c = host_halo_mass_adjusted_mapping[hostid]
 
     def load_all(self: object, bins: int):
         """Calls load_variables, velocities and bin_galaxies
