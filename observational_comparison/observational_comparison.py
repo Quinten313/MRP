@@ -277,3 +277,13 @@ def calc_correlation_per_density(array1, array2, n_g):
     for n in range(1, n_g_max+1):
         correlation[n-1] = calc_correlation(array1[n_g == n], array2[n_g == n])
     return np.arange(1, n_g_max+1), correlation
+
+def combine_bins(x, amount, positions):
+    x = x.copy()
+    positions.append(int(np.max(x)))
+    for n, x0, x1 in zip(amount, positions[:-1], positions[1:]):
+        constant = x0 % n
+        mask = (x > x0) & (x <= x1)
+        x[mask] = x[mask] - x[mask] % n + constant
+    
+    return np.array(list(set(list(x)))), x
