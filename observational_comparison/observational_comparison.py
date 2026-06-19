@@ -176,7 +176,7 @@ def save_simulation(simulation_tag, snapshot, mass_tag, n_bins):
     delattr(simulation, 'data')
     np.save(f'../storage/simulations_obs/{simulation.simulation}_{simulation.snapshot}_{simulation.mass_tag}_{n_bins}', simulation)
 
-def load_simulation(simulation_tag, snapshot, mass_tag, n_bins, allow_save=False):
+def load_simulation(simulation_tag, snapshot, mass_tag, n_bins, allow_save=True):
     path = f'../storage/simulations_obs/{simulation_tag}_{snapshot}_{mass_tag}_{n_bins}.npy'
     
     if os.path.exists(path):
@@ -193,6 +193,7 @@ def load_simulation(simulation_tag, snapshot, mass_tag, n_bins, allow_save=False
         print('File not found')
 
 def reconstruct_velocities(simulation, r_smooth, redshift_space=True):
+    "Solves the LCE according to the fiducial FLAMINGO cosmology"
     
     if redshift_space:
         delta_g = simulation.delta_g_z
@@ -213,6 +214,14 @@ def reconstruct_velocities(simulation, r_smooth, redshift_space=True):
 
     reconstructed_cube = np.real(np.fft.ifftn(v_k))
     return reconstructed_cube
+
+def get_voxel_velocities_1D(simulation, r_smooth):
+    reconstructed_cube = reconstruct_velocities(simulation, r_smooth)
+
+    v_rec_voxel = np.abs(reconstructed_cube)
+    v_true_voxel = simulation.voxel_velocity_z
+
+    return v_rec_voxel, v_true_voxel
 
 def get_galaxy_velocities(simulation, r_smooth, redshift_space=True, interpolation=True):
     reconstructed_cube = reconstruct_velocities(simulation, r_smooth, redshift_space)
