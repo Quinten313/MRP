@@ -176,14 +176,14 @@ def save_simulation(simulation_tag, snapshot, mass_tag, n_bins):
     delattr(simulation, 'data')
     np.save(f'../storage/simulations_obs/{simulation.simulation}_{simulation.snapshot}_{simulation.mass_tag}_{n_bins}', simulation)
 
-def load_simulation(simulation_tag, snapshot, mass_tag, n_bins, allow_save=True):
+def load_simulation(simulation_tag, snapshot, mass_tag, n_bins, allow_save=True, reload=False):
     path = f'../storage/simulations_obs/{simulation_tag}_{snapshot}_{mass_tag}_{n_bins}.npy'
     
-    if os.path.exists(path):
+    if os.path.exists(path) and not reload:
         print('Loading simulation...')
         return np.load(path, allow_pickle=True).item()
     
-    elif allow_save:
+    elif allow_save or reload:
         print('Saving simulation...')
         save_simulation(simulation_tag, snapshot, mass_tag, n_bins)
         print('Loading simulation...')
@@ -192,7 +192,7 @@ def load_simulation(simulation_tag, snapshot, mass_tag, n_bins, allow_save=True)
     else:
         print('File not found')
 
-def reconstruct_velocities(simulation, r_smooth, redshift_space=True):
+def reconstruct_velocities(simulation, r_smooth, redshift_space=True, fiducial_cosmology=True):
     "Solves the LCE according to the fiducial FLAMINGO cosmology"
     
     if redshift_space:
@@ -200,7 +200,11 @@ def reconstruct_velocities(simulation, r_smooth, redshift_space=True):
     else:
         delta_g = simulation.delta_g
 
-    f, aH = 0.304611**.55, 68.1
+    if fiducial_cosmology:
+        f, aH = 0.304611**.55, 68.1
+    else:
+        f, aH = simulation.cosmology['Om0']**.55, simulation.cosmology_raw['H [internal units]']
+
     k_i = 2 * np.pi * np.fft.fftfreq(simulation.bins, simulation.boxsize / simulation.bins)
     kx = k_i[None, :, None]
     ky = k_i[:, None, None]
@@ -223,8 +227,8 @@ def get_voxel_velocities_1D(simulation, r_smooth):
 
     return v_rec_voxel, v_true_voxel
 
-def get_galaxy_velocities(simulation, r_smooth, redshift_space=True, interpolation=True):
-    reconstructed_cube = reconstruct_velocities(simulation, r_smooth, redshift_space)
+def get_galaxy_velocities(simulation, r_smooth, redshift_space=True, interpolation=True, fiducial_cosmology=True):
+    reconstructed_cube = reconstruct_velocities(simulation, r_smooth, redshift_space, fiducial_cosmology=fiducial_cosmology)
 
     if redshift_space:
         halo_centers = simulation.halo_centers_z
