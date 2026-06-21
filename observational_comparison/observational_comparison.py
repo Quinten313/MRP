@@ -1,7 +1,6 @@
 import my_functions as mf
 import swiftsimio
 import numpy as np
-from scipy.stats import binned_statistic_dd
 import os
 
 class ObservationalComparison():
@@ -22,8 +21,13 @@ class ObservationalComparison():
         self.mass_tag = mass_tag
         self.select_galaxies()
 
-    def select_galaxies(self: object):
-        """Loads in all subhalos within the mass range"""
+    def select_galaxies(self):
+        if self.mass_tag[0] == 'N':
+            self.select_galaxies_fixed_number()
+        else:
+            self.selext_galaxies_mass_threshold()
+        
+    def load_subhalo_mass(self):
 
         if hasattr(self.data.exclusive_sphere_50kpc, 'stellar_mass'):
             print('Subhalo mass: stellar')
@@ -31,6 +35,28 @@ class ObservationalComparison():
         else:
             print('Subhalo mass: total')
             halo_mass_all = np.array(self.data.exclusive_sphere_50kpc.total_mass.to('Msun'))
+
+        return halo_mass_all
+
+    def select_galaxies_fixed_number(self: object):
+        """Loads in the N galaxies with the largest subhalo mass"""
+
+        n = int(self.mass_tag[1:])
+
+        halo_mass_all = self.load_subhalo_mass()
+        order = np.argsort(halo_mass_all)
+        self.mass_threshold = halo_mass_all[order][-n]
+        indices = order[-n:]
+        self.mask = np.zeros(len(halo_mass_all), dtype=bool)
+        self.mask[indices] = True
+        self.hmass = halo_mass_all[self.mask]
+
+        print(f'Subhalo mass range: {np.log10(self.mass_threshold)} - {np.inf}\nGalaxies: {np.sum(self.mask)}')
+
+    def selext_galaxies_mass_threshold(self: object):
+        """Loads in all subhalos within the mass range"""
+
+        halo_mass_all = self.load_subhalo_mass()
 
         if self.mass_tag[:3] == 'sub':
             self.load_host_halo_mass()
@@ -290,4 +316,4 @@ def combine_bins(x, amount, positions):
         mask = (x > x0) & (x <= x1)
         x[mask] = x[mask] - x[mask] % n + constant
     
-    return np.array(list(set(list(x)))), x
+    return np.unique(x), x
