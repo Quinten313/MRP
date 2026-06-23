@@ -22,6 +22,13 @@ class ObservationalComparison():
         self.select_galaxies()
 
     def select_galaxies(self):
+        print(self.mass_tag)
+        if self.mass_tag[-3:] == '_tm':
+            self.use_total_mass = True
+            self.mass_tag = self.mass_tag[:-3]
+        else:
+            self.use_total_mass = False
+
         if self.mass_tag[0] == 'N':
             self.select_galaxies_fixed_number()
         else:
@@ -29,7 +36,7 @@ class ObservationalComparison():
         
     def load_subhalo_mass(self):
 
-        if hasattr(self.data.exclusive_sphere_50kpc, 'stellar_mass'):
+        if hasattr(self.data.exclusive_sphere_50kpc, 'stellar_mass') and not self.use_total_mass:
             print('Subhalo mass: stellar')
             halo_mass_all = np.array(self.data.exclusive_sphere_50kpc.stellar_mass.to('Msun'))
         else:
@@ -149,7 +156,7 @@ class ObservationalComparison():
         hostid_central = hostid[self.is_central]
         velocity_central = self.vp_true[self.is_central]
 
-        velocity_adjusted_mapping = np.zeros(np.max(hostid_central)+2)  # +1 such that the maximum value fits: if max is 100, we need np.zeros(101)
+        velocity_adjusted_mapping = np.zeros(np.max(hostid)+2)  # +1 such that the maximum value fits: if max is 100, we need np.zeros(101)
         velocity_adjusted_mapping[hostid_central] = velocity_central    # +2 such that haloless centrals (hostid == -1) all get mapped to an unused slot
 
         self.vp = self.vp_true.copy()
@@ -200,25 +207,30 @@ def save_simulation(simulation_tag, snapshot, mass_tag, n_bins):
     simulation = ObservationalComparison(simulation_tag, snapshot, mass_tag)
     simulation.load_all(n_bins)
     delattr(simulation, 'data')
-    np.save(f'../storage/simulations_obs/{simulation.simulation}_{simulation.snapshot}_{simulation.mass_tag}_{n_bins}', simulation)
+    mass_tag = simulation.mass_tag
+    if simulation.use_total_mass:
+        mass_tag += '_tm'
+    np.save(f'../storage/simulations_obs/{simulation.simulation}_{simulation.snapshot}_{mass_tag}_{n_bins}', simulation)
 
-def load_simulation(simulation_tag, snapshot, mass_tag, n_bins, allow_save=True, reload=False):
+def load_simulation(simulation_tag, snapshot, mass_tag, n_bins, allow_save=True, reload=False, hide_prints=False):
     path = f'../storage/simulations_obs/{simulation_tag}_{snapshot}_{mass_tag}_{n_bins}.npy'
     
     if os.path.exists(path) and not reload:
-        print('Loading simulation...')
+        if not hide_prints:
+            print('Loading simulation...')
         return np.load(path, allow_pickle=True).item()
     
     elif allow_save or reload:
         print('Saving simulation...')
         save_simulation(simulation_tag, snapshot, mass_tag, n_bins)
-        print('Loading simulation...')
+        if not hide_prints:
+            print('Loading simulation...')
         return np.load(path, allow_pickle=True).item()
     
     else:
         print('File not found')
 
-def reconstruct_velocities(simulation, r_smooth, redshift_space=True, fiducial_cosmology=True):
+def reconstruct_velocities(simulation, r_smooth, redshift_space=True, fiducial_cosmology=True, rescale=False):
     "Solves the LCE according to the fiducial FLAMINGO cosmology"
     
     if redshift_space:
@@ -243,6 +255,21 @@ def reconstruct_velocities(simulation, r_smooth, redshift_space=True, fiducial_c
     v_k[k2 == 0] = 0
 
     reconstructed_cube = np.real(np.fft.ifftn(v_k))
+
+    if rescale:
+
+        if redshift_space:
+            halo_centers = simulation.halo_centers_z
+        else:
+            halo_centers = simulation.halo_centers
+        
+        v_true_mean = np.mean(np.abs(simulation.vp))
+        v_rec_mean = np.mean(np.abs(trilinear_interpolation(reconstructed_cube, halo_centers, simulation.bins, simulation.boxsize/simulation.bins)))
+        
+        f_r = v_true_mean / v_rec_mean
+        print(f'f_r = {f_r}')
+        
+        return reconstructed_cube * f_r
     return reconstructed_cube
 
 def get_voxel_velocities_1D(simulation, r_smooth):
@@ -253,8 +280,8 @@ def get_voxel_velocities_1D(simulation, r_smooth):
 
     return v_rec_voxel, v_true_voxel
 
-def get_galaxy_velocities(simulation, r_smooth, redshift_space=True, interpolation=True, fiducial_cosmology=True):
-    reconstructed_cube = reconstruct_velocities(simulation, r_smooth, redshift_space, fiducial_cosmology=fiducial_cosmology)
+def get_galaxy_velocities(simulation, r_smooth, redshift_space=True, interpolation=True, fiducial_cosmology=True, rescale=False):
+    reconstructed_cube = reconstruct_velocities(simulation, r_smooth, redshift_space, fiducial_cosmology=fiducial_cosmology, rescale=rescale)
 
     if redshift_space:
         halo_centers = simulation.halo_centers_z
