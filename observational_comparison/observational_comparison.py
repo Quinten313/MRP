@@ -344,3 +344,25 @@ def combine_bins(x, amount, positions):
         x[mask] = x[mask] - x[mask] % n + constant
     
     return np.unique(x), x
+
+def mass_string(Mmin, Mmax, step):
+    masses = np.arange(Mmin, Mmax+step/2, step)
+    tags = [str(i) for i in masses]
+    for i, tag in enumerate(tags):
+        if tag[-2:] == '.0':
+            tags[i] = tag[:-2]
+        tags[i] += '+'
+    return tags, masses
+
+def save_r_v_from_mass_tag(simulation_tag, snapshot, mass_tag, n_bins, r_smooth=11):
+    simulation = ObservationalComparison(simulation_tag, snapshot, mass_tag)
+    simulation.load_all(n_bins)
+    v_rec, v_true = get_galaxy_velocities(simulation, r_smooth)
+    np.save(f'/data2/quinten/MRP/storage/r_vs/{simulation_tag}_{snapshot}_{mass_tag}_{n_bins}_{r_smooth}.npy', calc_correlation(v_true, v_rec))
+
+def load_r_v_from_mass_tag(simulation_tag, snapshot, mass_tag, n_bins, r_smooth=11):
+    path = f'/data2/quinten/MRP/storage/r_vs/{simulation_tag}_{snapshot}_{mass_tag}_{n_bins}_{r_smooth}.npy'
+    if not os.path.exists(path):
+        print('Saving correlation coefficient...')
+        save_r_v_from_mass_tag(simulation_tag, snapshot, mass_tag, n_bins, r_smooth=r_smooth)
+    return np.load(path)
